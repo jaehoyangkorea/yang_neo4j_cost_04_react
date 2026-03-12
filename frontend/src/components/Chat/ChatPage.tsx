@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { chatApi } from '../../services/api'
 
 interface Message {
@@ -393,8 +394,7 @@ function findLocalAnswer(question: string): string | null {
   return null
 }
 
-/** 매칭 안 되는 질문에 대한 기본 답변 */
-const DEFAULT_ANSWER = `질문을 분석하여 관련 원가 데이터를 검색했습니다.
+const DEFAULT_ANSWER_KO = `질문을 분석하여 관련 원가 데이터를 검색했습니다.
 
 현재 2025년 1월 기준 주요 원가 현황은 다음과 같습니다:
 
@@ -407,7 +407,25 @@ const DEFAULT_ANSWER = `질문을 분석하여 관련 원가 데이터를 검색
 예) "감가상각비 왜 올랐나요?", "HBM 원가 분석", "향후 전망은?"
 `
 
+const DEFAULT_ANSWER_EN = `We analyzed your question and searched the relevant cost data.
+
+Here is the key cost overview as of January 2025:
+
+• Total Manufacturing Cost: KRW 222.7B (MoM +6.41B, +3.0%)
+• Largest Increase: Depreciation +2.85B (new EUV equipment)
+• Second: Materials +1.62B (slurry/resist price increase)
+• Only Decrease: Test Process -0.52B (automation savings)
+
+Please ask a more specific question for a detailed analysis.
+e.g. "Why did depreciation increase?", "HBM cost analysis", "Future outlook?"
+`
+
+function getDefaultAnswer(lang: string): string {
+  return lang === 'en' ? DEFAULT_ANSWER_EN : DEFAULT_ANSWER_KO
+}
+
 export default function ChatPage() {
+  const { t, i18n } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -423,18 +441,15 @@ export default function ChatPage() {
     setLoading(true)
 
     try {
-      // 먼저 백엔드 API 시도
       const res = await chatApi.ask(question, yyyymm)
       setMessages(prev => [...prev, { role: 'assistant', content: res.data.answer }])
     } catch {
-      // API 실패 시 로컬 지식 기반으로 폴백
-      // 약간의 딜레이를 주어 자연스러운 답변 생성 느낌
       await new Promise(resolve => setTimeout(resolve, 600))
 
       const localAnswer = findLocalAnswer(question)
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: localAnswer || DEFAULT_ANSWER,
+        content: localAnswer || getDefaultAnswer(i18n.language),
       }])
     } finally {
       setLoading(false)
@@ -460,18 +475,20 @@ export default function ChatPage() {
     }
   }
 
+  const quickQuestions = t('chat.quickQuestions', { returnObjects: true }) as string[]
+
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">질의응답</h2>
-        <p className="page-subtitle">원가 변동에 대해 자연어로 질문하세요</p>
+        <h2 className="page-title">{t('chat.title')}</h2>
+        <p className="page-subtitle">{t('chat.subtitle')}</p>
       </div>
 
       <div className="month-selector">
-        <label>분석 기준월:</label>
+        <label>{t('chat.baseMonth')}</label>
         <select value={yyyymm} onChange={e => setYyyymm(e.target.value)}>
-          <option value="202501">2025년 01월</option>
-          <option value="202412">2024년 12월</option>
+          <option value="202501">{t('chat.month202501')}</option>
+          <option value="202412">{t('chat.month202412')}</option>
         </select>
       </div>
 
@@ -486,18 +503,11 @@ export default function ChatPage() {
           {messages.length === 0 && (
             <div style={{ textAlign: 'center', color: '#94a3b8', padding: 40 }}>
               <p style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
-                원가 변동에 대해 질문해보세요
+                {t('chat.emptyTitle')}
               </p>
-              <p style={{ fontSize: 13, marginBottom: 4 }}>아래 예시를 클릭하면 바로 답변을 받을 수 있습니다</p>
+              <p style={{ fontSize: 13, marginBottom: 4 }}>{t('chat.emptySubtitle')}</p>
               <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
-                {[
-                  '이번 달 원가가 왜 올랐나요?',
-                  'HBM 제품의 배부율이 왜 상승했나요?',
-                  '과거에도 이런 패턴이 있었나요?',
-                  '어떤 제품에 파급이 있었나요?',
-                  '감가상각비가 왜 이렇게 높나요?',
-                  '향후 전망은 어떻게 되나요?',
-                ].map(q => (
+                {quickQuestions.map(q => (
                   <button
                     key={q}
                     className="btn"
@@ -562,7 +572,7 @@ export default function ChatPage() {
                   borderRadius: '50%', background: '#3b82f6',
                   animation: 'pulse 1s ease-in-out infinite',
                 }} />
-                원가 데이터를 분석하고 있습니다...
+                {t('chat.analyzing')}
               </div>
             </div>
           )}
@@ -575,11 +585,11 @@ export default function ChatPage() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="원가 변동에 대해 질문하세요..."
+            placeholder={t('chat.inputPlaceholder')}
             disabled={loading}
           />
           <button className="btn btn-primary" onClick={handleSend} disabled={loading}>
-            전송
+            {t('chat.send')}
           </button>
         </div>
       </div>

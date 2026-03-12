@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell,
@@ -12,40 +13,73 @@ const CE_NAMES: Record<string, string> = {
   CE_DEP: '감가상각비', CE_LAB: '인건비', CE_PWR: '전력비',
   CE_MAT: '재료비', CE_MNT: '수선유지비', CE_GAS: '기료비', CE_OTH: '기타경비',
 }
-const getVarLabel = (varType: string, ceCd?: string): string => {
-  const ceName = ceCd ? (CE_NAMES[ceCd] || ceCd) : ''
-  switch (varType) {
-    case 'RATE_VAR':  return '단위원가 변동'
-    case 'QTY_VAR':   return '생산Mix 변동'
-    case 'RATE_COST': return `${ceName} 총액 증감`
-    case 'RATE_BASE': return '가동시간 변동'
-    case 'PRICE_VAR': return '자재 단가 변동'
-    case 'USAGE_VAR': return 'BOM 사용량 변동'
-    default: return varType
-  }
+
+const reportConfigDef: Record<string, {
+  titleKey: string; subtitleKey: string
+  fetchFn: (ym: string) => Promise<any>
+  componentKey: string
+}> = {
+  executive: {
+    titleKey: 'report.executiveTitle',
+    subtitleKey: 'report.executiveSubtitle',
+    fetchFn: (ym) => reportApi.executiveSummary(ym).then(r => r.data),
+    componentKey: 'executive',
+  },
+  'cost-team': {
+    titleKey: 'report.costTeamTitle',
+    subtitleKey: 'report.costTeamSubtitle',
+    fetchFn: (ym) => reportApi.costTeam(ym).then(r => r.data),
+    componentKey: 'cost-team',
+  },
+  'production-team': {
+    titleKey: 'report.productionTeamTitle',
+    subtitleKey: 'report.productionTeamSubtitle',
+    fetchFn: (ym) => reportApi.productionTeam(ym).then(r => r.data),
+    componentKey: 'production-team',
+  },
+  'purchase-team': {
+    titleKey: 'report.purchaseTeamTitle',
+    subtitleKey: 'report.purchaseTeamSubtitle',
+    fetchFn: (ym) => reportApi.purchaseTeam(ym).then(r => r.data),
+    componentKey: 'purchase-team',
+  },
 }
 
 /* ── 경영진 보고서 ── */
 function ExecutiveReport({ data }: { data: any }) {
+  const { t } = useTranslation()
   const tc = data.total_cost
   const diff = (tc.curr || 0) - (tc.prev || 0)
   const rate = tc.prev ? (diff / tc.prev * 100) : 0
+
+  const getVarLabel = (varType: string, ceCd?: string): string => {
+    const ceName = ceCd ? (CE_NAMES[ceCd] || ceCd) : ''
+    switch (varType) {
+      case 'RATE_VAR':  return t('report.varLabels.rateVar')
+      case 'QTY_VAR':   return t('report.varLabels.qtyVar')
+      case 'RATE_COST': return t('report.varLabels.rateCost', { ceName })
+      case 'RATE_BASE': return t('report.varLabels.rateBase')
+      case 'PRICE_VAR': return t('report.varLabels.priceVar')
+      case 'USAGE_VAR': return t('report.varLabels.usageVar')
+      default: return varType
+    }
+  }
 
   return (
     <>
       {/* 총원가 요약 */}
       <div className="report-summary-bar">
         <div className="report-summary-item">
-          <span className="report-summary-label">당월 총원가</span>
+          <span className="report-summary-label">{t('report.currentMonthTotal')}</span>
           <span className="report-summary-value">{tc.curr?.toFixed(1)} 억원</span>
         </div>
         <div className="report-summary-arrow">{diff >= 0 ? '▲' : '▼'}</div>
         <div className="report-summary-item">
-          <span className="report-summary-label">전월 총원가</span>
+          <span className="report-summary-label">{t('report.prevMonthTotal')}</span>
           <span className="report-summary-value">{tc.prev?.toFixed(1)} 억원</span>
         </div>
         <div className="report-summary-item">
-          <span className="report-summary-label">증감</span>
+          <span className="report-summary-label">{t('report.thChange')}</span>
           <span className={`report-summary-value ${diff >= 0 ? 'text-positive' : 'text-negative'}`}>
             {diff >= 0 ? '+' : ''}{diff.toFixed(1)} 억원 ({rate >= 0 ? '+' : ''}{rate.toFixed(1)}%)
           </span>
@@ -54,7 +88,7 @@ function ExecutiveReport({ data }: { data: any }) {
 
       {/* 제품군별 증감 */}
       <div className="card">
-        <h3 className="card-title">제품군별 원가 증감</h3>
+        <h3 className="card-title">{t('report.productGroupChange')}</h3>
         {data.by_product_group?.length > 0 && (
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={data.by_product_group}>
@@ -62,7 +96,7 @@ function ExecutiveReport({ data }: { data: any }) {
               <XAxis dataKey="product_grp" tick={{ fontSize: 13 }} />
               <YAxis tick={{ fontSize: 12 }} />
               <Tooltip formatter={(v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)}억원`} />
-              <Bar dataKey="diff" name="증감(억원)" radius={[4, 4, 0, 0]}>
+              <Bar dataKey="diff" name={t('report.thChange')} radius={[4, 4, 0, 0]}>
                 {data.by_product_group.map((d: any, i: number) => (
                   <Cell key={i} fill={d.diff >= 0 ? '#ef4444' : '#22c55e'} />
                 ))}
@@ -73,11 +107,11 @@ function ExecutiveReport({ data }: { data: any }) {
         <table style={{ marginTop: 16 }}>
           <thead>
             <tr>
-              <th>제품군</th>
-              <th style={{ textAlign: 'right' }}>당월 (억원)</th>
-              <th style={{ textAlign: 'right' }}>전월 (억원)</th>
-              <th style={{ textAlign: 'right' }}>증감 (억원)</th>
-              <th style={{ textAlign: 'right' }}>증감률</th>
+              <th>{t('report.thProductGroup')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thCurrent')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thPrevious')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thChange')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thChangeRate')}</th>
             </tr>
           </thead>
           <tbody>
@@ -103,26 +137,34 @@ function ExecutiveReport({ data }: { data: any }) {
 
 /* ── 원가팀 보고서 ── */
 function CostTeamReport({ data }: { data: any }) {
-  const grouped = (data.top_variances || []).reduce((acc: any, v: any) => {
-    const key = `${v.product_cd}_${v.proc_cd}_${v.ce_cd}`
-    if (!acc[key]) acc[key] = { ...v, items: [] }
-    acc[key].items.push(v)
-    return acc
-  }, {} as Record<string, any>)
+  const { t } = useTranslation()
+
+  const getVarLabel = (varType: string, ceCd?: string): string => {
+    const ceName = ceCd ? (CE_NAMES[ceCd] || ceCd) : ''
+    switch (varType) {
+      case 'RATE_VAR':  return t('report.varLabels.rateVar')
+      case 'QTY_VAR':   return t('report.varLabels.qtyVar')
+      case 'RATE_COST': return t('report.varLabels.rateCost', { ceName })
+      case 'RATE_BASE': return t('report.varLabels.rateBase')
+      case 'PRICE_VAR': return t('report.varLabels.priceVar')
+      case 'USAGE_VAR': return t('report.varLabels.usageVar')
+      default: return varType
+    }
+  }
 
   return (
     <div className="card">
-      <h3 className="card-title">주요 차이 항목 (금액 기준 상위)</h3>
+      <h3 className="card-title">{t('report.topVariances')}</h3>
       <table>
         <thead>
           <tr>
-            <th>제품군</th>
-            <th>제품코드</th>
-            <th>공정</th>
-            <th>원가요소</th>
-            <th>차이유형</th>
-            <th style={{ textAlign: 'right' }}>금액 (억원)</th>
-            <th style={{ textAlign: 'right' }}>변동률</th>
+            <th>{t('report.thProductGroup')}</th>
+            <th>{t('report.thProductCode')}</th>
+            <th>{t('report.thProcess')}</th>
+            <th>{t('report.thCostElement')}</th>
+            <th>{t('report.thVarType')}</th>
+            <th style={{ textAlign: 'right' }}>{t('report.thAmount')}</th>
+            <th style={{ textAlign: 'right' }}>{t('report.thChangeRate')}</th>
           </tr>
         </thead>
         <tbody>
@@ -156,20 +198,35 @@ function CostTeamReport({ data }: { data: any }) {
 
 /* ── 생산팀 보고서 ── */
 function ProductionTeamReport({ data }: { data: any }) {
+  const { t } = useTranslation()
+
+  const getVarLabel = (varType: string, ceCd?: string): string => {
+    const ceName = ceCd ? (CE_NAMES[ceCd] || ceCd) : ''
+    switch (varType) {
+      case 'RATE_VAR':  return t('report.varLabels.rateVar')
+      case 'QTY_VAR':   return t('report.varLabels.qtyVar')
+      case 'RATE_COST': return t('report.varLabels.rateCost', { ceName })
+      case 'RATE_BASE': return t('report.varLabels.rateBase')
+      case 'PRICE_VAR': return t('report.varLabels.priceVar')
+      case 'USAGE_VAR': return t('report.varLabels.usageVar')
+      default: return varType
+    }
+  }
+
   return (
     <>
       <div className="card">
-        <h3 className="card-title">MES 이벤트 — 장비 가동률/수율 변동</h3>
+        <h3 className="card-title">{t('report.mesEvents')}</h3>
         <table>
           <thead>
             <tr>
-              <th>장비코드</th>
-              <th>장비명</th>
-              <th>지표</th>
-              <th style={{ textAlign: 'right' }}>전월</th>
-              <th style={{ textAlign: 'right' }}>당월</th>
-              <th style={{ textAlign: 'right' }}>변동</th>
-              <th style={{ textAlign: 'right' }}>변동률</th>
+              <th>{t('report.thEquipCode')}</th>
+              <th>{t('report.thEquipName')}</th>
+              <th>{t('report.thMetric')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thPrevious')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thCurrent')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thChange')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thChangeRate')}</th>
             </tr>
           </thead>
           <tbody>
@@ -194,15 +251,15 @@ function ProductionTeamReport({ data }: { data: any }) {
 
       {data.cost_impacts?.length > 0 && (
         <div className="card">
-          <h3 className="card-title">원가 영향 분석 (Neo4j EVIDENCED_BY 연결)</h3>
+          <h3 className="card-title">{t('report.costImpactAnalysis')}</h3>
           <table>
             <thead>
               <tr>
-                <th>장비</th>
-                <th>제품</th>
-                <th>차이유형</th>
-                <th style={{ textAlign: 'right' }}>영향 금액 (억원)</th>
-                <th style={{ textAlign: 'right' }}>영향률</th>
+                <th>{t('report.thEquipment')}</th>
+                <th>{t('report.thProduct')}</th>
+                <th>{t('report.thVarType')}</th>
+                <th style={{ textAlign: 'right' }}>{t('report.thImpactAmount')}</th>
+                <th style={{ textAlign: 'right' }}>{t('report.thImpactRate')}</th>
               </tr>
             </thead>
             <tbody>
@@ -229,20 +286,35 @@ function ProductionTeamReport({ data }: { data: any }) {
 
 /* ── 구매팀 보고서 ── */
 function PurchaseTeamReport({ data }: { data: any }) {
+  const { t } = useTranslation()
+
+  const getVarLabel = (varType: string, ceCd?: string): string => {
+    const ceName = ceCd ? (CE_NAMES[ceCd] || ceCd) : ''
+    switch (varType) {
+      case 'RATE_VAR':  return t('report.varLabels.rateVar')
+      case 'QTY_VAR':   return t('report.varLabels.qtyVar')
+      case 'RATE_COST': return t('report.varLabels.rateCost', { ceName })
+      case 'RATE_BASE': return t('report.varLabels.rateBase')
+      case 'PRICE_VAR': return t('report.varLabels.priceVar')
+      case 'USAGE_VAR': return t('report.varLabels.usageVar')
+      default: return varType
+    }
+  }
+
   return (
     <>
       <div className="card">
-        <h3 className="card-title">자재 단가 변동 이벤트</h3>
+        <h3 className="card-title">{t('report.purchaseEvents')}</h3>
         <table>
           <thead>
             <tr>
-              <th>자재코드</th>
-              <th>자재명</th>
-              <th>변경유형</th>
-              <th style={{ textAlign: 'right' }}>변경 전</th>
-              <th style={{ textAlign: 'right' }}>변경 후</th>
-              <th style={{ textAlign: 'right' }}>변동률</th>
-              <th>사유</th>
+              <th>{t('report.thMatCode')}</th>
+              <th>{t('report.thMatName')}</th>
+              <th>{t('report.thChangeType')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thBefore')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thAfter')}</th>
+              <th style={{ textAlign: 'right' }}>{t('report.thChangeRate')}</th>
+              <th>{t('report.thReason')}</th>
             </tr>
           </thead>
           <tbody>
@@ -265,15 +337,15 @@ function PurchaseTeamReport({ data }: { data: any }) {
 
       {data.cost_impacts?.length > 0 && (
         <div className="card">
-          <h3 className="card-title">원가 영향 분석 (Neo4j EVIDENCED_BY 연결)</h3>
+          <h3 className="card-title">{t('report.costImpactAnalysis')}</h3>
           <table>
             <thead>
               <tr>
-                <th>자재</th>
-                <th>제품</th>
-                <th>차이유형</th>
-                <th style={{ textAlign: 'right' }}>영향 금액 (억원)</th>
-                <th style={{ textAlign: 'right' }}>영향률</th>
+                <th>{t('report.thMaterial')}</th>
+                <th>{t('report.thProduct')}</th>
+                <th>{t('report.thVarType')}</th>
+                <th style={{ textAlign: 'right' }}>{t('report.thImpactAmount')}</th>
+                <th style={{ textAlign: 'right' }}>{t('report.thImpactRate')}</th>
               </tr>
             </thead>
             <tbody>
@@ -303,41 +375,19 @@ function PurchaseTeamReport({ data }: { data: any }) {
 }
 
 /* ── 메인 보고서 페이지 ── */
-const reportConfig: Record<string, {
-  title: string; subtitle: string
-  fetchFn: (ym: string) => Promise<any>
-  Component: React.FC<{ data: any }>
-}> = {
-  executive: {
-    title: '경영진 요약 보고서',
-    subtitle: '제품군별 원가 증감 + 핵심 원인 요약',
-    fetchFn: (ym) => reportApi.executiveSummary(ym).then(r => r.data),
-    Component: ExecutiveReport,
-  },
-  'cost-team': {
-    title: '원가팀 상세 보고서',
-    subtitle: '원가요소별 상세 Drill-down · 단위원가/생산Mix/단가/BOM 분해',
-    fetchFn: (ym) => reportApi.costTeam(ym).then(r => r.data),
-    Component: CostTeamReport,
-  },
-  'production-team': {
-    title: '생산팀 보고서',
-    subtitle: 'MES 장비 가동률/수율 변동 → 원가 영향 분석',
-    fetchFn: (ym) => reportApi.productionTeam(ym).then(r => r.data),
-    Component: ProductionTeamReport,
-  },
-  'purchase-team': {
-    title: '구매팀 보고서',
-    subtitle: '자재 단가 변동 → 원가 영향 분석',
-    fetchFn: (ym) => reportApi.purchaseTeam(ym).then(r => r.data),
-    Component: PurchaseTeamReport,
-  },
+const componentMap: Record<string, React.FC<{ data: any }>> = {
+  executive: ExecutiveReport,
+  'cost-team': CostTeamReport,
+  'production-team': ProductionTeamReport,
+  'purchase-team': PurchaseTeamReport,
 }
 
 export default function ReportPage() {
+  const { t } = useTranslation()
   const { type } = useParams<{ type: string }>()
   const [yyyymm, setYyyymm] = useState('202501')
-  const config = reportConfig[type || 'executive']
+  const config = reportConfigDef[type || 'executive']
+  const Component = componentMap[config?.componentKey || 'executive']
 
   const { data, isLoading } = useQuery({
     queryKey: ['report', type, yyyymm],
@@ -345,33 +395,33 @@ export default function ReportPage() {
     enabled: !!config,
   })
 
-  if (!config) return <div className="card">보고서를 찾을 수 없습니다.</div>
+  if (!config) return <div className="card">{t('report.notFound')}</div>
 
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">{config.title}</h2>
-        <p className="page-subtitle">{config.subtitle}</p>
+        <h2 className="page-title">{t(config.titleKey)}</h2>
+        <p className="page-subtitle">{t(config.subtitleKey)}</p>
       </div>
 
       <div className="month-selector">
-        <label>기준월:</label>
+        <label>{t('report.baseMonth')}</label>
         <select value={yyyymm} onChange={e => setYyyymm(e.target.value)}>
-          <option value="202501">2025년 01월</option>
-          <option value="202412">2024년 12월</option>
+          <option value="202501">{t('report.month202501')}</option>
+          <option value="202412">{t('report.month202412')}</option>
         </select>
         <span className="report-badge">
-          {yyyymm.slice(0, 4)}년 {parseInt(yyyymm.slice(4))}월 보고서
+          {t('report.reportBadge', { year: yyyymm.slice(0, 4), month: parseInt(yyyymm.slice(4)) })}
         </span>
       </div>
 
       {isLoading ? (
         <div className="card" style={{ textAlign: 'center', padding: 60, color: '#94a3b8' }}>
           <div className="spinner" />
-          <p style={{ marginTop: 12 }}>보고서를 생성하고 있습니다...</p>
+          <p style={{ marginTop: 12 }}>{t('report.generating')}</p>
         </div>
       ) : data ? (
-        <config.Component data={data} />
+        <Component data={data} />
       ) : null}
     </div>
   )

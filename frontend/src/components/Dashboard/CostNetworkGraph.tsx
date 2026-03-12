@@ -1,4 +1,6 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
+import koJson from '../../i18n/ko.json'
 import { Card, CardContent } from '../ui/card'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
@@ -40,14 +42,6 @@ const LABEL_FONT: Record<NodeType, number> = {
 const VALUE_FONT: Record<NodeType, number> = {
   root: 16, process: 14, element: 13, driver: 12, detail: 11, sub_detail: 10, micro: 9, action: 8,
 }
-
-const RELATION_LABELS: Record<string, string> = {
-  CONSUMES: '투입', MATERIAL: '재료비', DEPRECIATION: '감가상각', LABOR: '인건비',
-  CAUSED_BY: '원인', ROOT_CAUSE: '근본원인', FACTOR: '요인', IMPACT: '영향', ACTION: '대응',
-  SUPPLY: '공급', PRICE: '단가', DEMAND: '수요', RISK: '리스크', CONVERT: '전환',
-}
-
-const LEVEL_LABELS = ['제품', '공정', '원가요소', '드라이버', '상세원인', '세부요인', '미시요인', '대응방안']
 
 /* ═══════════ 네트워크 데이터 (7레벨, 깊은 드릴다운) ═══════════ */
 const networkData: NetworkNode = {
@@ -488,8 +482,13 @@ function getNodeRadius(type: NodeType, variance: number): number {
   return (base * scale) / 2
 }
 
+const REVERSE_NODE_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(koJson.network.nodeLabels).map(([key, val]) => [val, key]),
+)
+
 /* ═══════════ 메인 컴포넌트 ═══════════ */
 export function CostNetworkGraph() {
+  const { t, i18n } = useTranslation()
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set(['root']))
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
@@ -498,6 +497,26 @@ export function CostNetworkGraph() {
   const dragRef = useRef({ active: false, didDrag: false, startX: 0, startY: 0, startPanX: 0, startPanY: 0 })
   const panRef = useRef(panOffset)
   panRef.current = panOffset
+
+  const relationLabels = useMemo(
+    () => t('network.relationLabels', { returnObjects: true }) as Record<string, string>,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t, i18n.language],
+  )
+
+  const levelLabels = useMemo(
+    () => t('network.levelLabels', { returnObjects: true }) as string[],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t, i18n.language],
+  )
+
+  const nodeLabel = useCallback(
+    (label: string) => {
+      const key = REVERSE_NODE_LABELS[label]
+      return key ? t(`network.nodeLabels.${key}`) : label
+    },
+    [t],
+  )
 
   /* ── 노드 토글 ── */
   const toggleNode = useCallback((nodeId: string) => {
@@ -541,7 +560,6 @@ export function CostNetworkGraph() {
       }
     }
 
-    // 루트부터 시작, 상단(-π/2)에서 시계방향으로 배치
     assign(networkData, -Math.PI * 0.5, Math.PI * 1.5, 0)
     return result
   }, [expandedNodes])
@@ -635,10 +653,10 @@ export function CostNetworkGraph() {
         <CardContent className="p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <h3 className="text-lg font-bold text-slate-900">원가 드라이버 네트워크 그래프</h3>
+              <h3 className="text-lg font-bold text-slate-900">{t('network.title')}</h3>
               <Badge variant="outline" className="gap-2">
                 <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                {positions.size}개 노드 · {maxLevel}레벨
+                {t('network.nodeCount', { count: positions.size, level: maxLevel })}
               </Badge>
             </div>
             <div className="flex items-center gap-2">
@@ -649,10 +667,10 @@ export function CostNetworkGraph() {
                 <ZoomOut className="w-4 h-4" />
               </Button>
               <Button variant="outline" size="sm" onClick={fitAll} className="gap-1">
-                <Maximize2 className="w-4 h-4" /> 전체보기
+                <Maximize2 className="w-4 h-4" /> {t('network.fitAll')}
               </Button>
               <Button variant="outline" size="sm" onClick={resetView} className="gap-1">
-                <Home className="w-4 h-4" /> 초기화
+                <Home className="w-4 h-4" /> {t('network.reset')}
               </Button>
             </div>
           </div>
@@ -663,17 +681,17 @@ export function CostNetworkGraph() {
       <Card className="shadow-lg border-slate-200">
         <CardContent className="p-4">
           <div className="flex flex-wrap items-center gap-4 text-sm">
-            <span className="font-semibold text-slate-700">차이 크기:</span>
-            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-full bg-red-500" /><span className="text-slate-600">&gt;10억</span></div>
-            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-full bg-orange-500" /><span className="text-slate-600">5~10억</span></div>
-            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-full bg-yellow-500" /><span className="text-slate-600">0~5억</span></div>
-            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-full bg-blue-400" /><span className="text-slate-600">감소</span></div>
+            <span className="font-semibold text-slate-700">{t('network.varianceSize')}</span>
+            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-full bg-red-500" /><span className="text-slate-600">{t('network.gt10')}</span></div>
+            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-full bg-orange-500" /><span className="text-slate-600">{t('network.range5to10')}</span></div>
+            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-full bg-yellow-500" /><span className="text-slate-600">{t('network.range0to5')}</span></div>
+            <div className="flex items-center gap-1.5"><div className="w-3.5 h-3.5 rounded-full bg-blue-400" /><span className="text-slate-600">{t('network.decrease')}</span></div>
             <div className="h-4 w-px bg-slate-300" />
-            <span className="font-semibold text-slate-700">레벨:</span>
-            {LEVEL_LABELS.map((lbl, i) => (
+            <span className="font-semibold text-slate-700">{t('network.levelLabel')}</span>
+            {levelLabels.map((lbl, i) => (
               <span key={i} className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{i}: {lbl}</span>
             ))}
-            <div className="ml-auto text-xs text-slate-500">클릭=드릴다운 · 드래그=이동 · 스크롤=확대/축소</div>
+            <div className="ml-auto text-xs text-slate-500">{t('network.interactionGuide')}</div>
           </div>
         </CardContent>
       </Card>
@@ -737,7 +755,7 @@ export function CostNetworkGraph() {
                             textAnchor="middle" opacity={opacity + 0.15}
                             className="pointer-events-none select-none"
                           >
-                            {RELATION_LABELS[child.relationType] || child.relationType}
+                            {relationLabels[child.relationType] || child.relationType}
                           </text>
                         )}
                       </g>
@@ -779,7 +797,7 @@ export function CostNetworkGraph() {
                         fontSize={lf} fontWeight="600" fill="#1e293b" textAnchor="middle"
                         className="pointer-events-none select-none"
                       >
-                        {node.label}
+                        {nodeLabel(node.label)}
                       </text>
 
                       {/* 차이 금액 (원 안) */}
@@ -788,7 +806,7 @@ export function CostNetworkGraph() {
                         fontSize={vf} fontWeight="bold" fill="#fff" textAnchor="middle"
                         className="pointer-events-none select-none"
                       >
-                        {node.variance > 0 ? '+' : ''}{node.variance}억
+                        {node.variance > 0 ? '+' : ''}{node.variance}{t('common.billion')}
                       </text>
 
                       {/* 총액 (아래) */}
@@ -797,7 +815,7 @@ export function CostNetworkGraph() {
                         fontSize={Math.max(7, lf - 2)} fill="#64748b" textAnchor="middle"
                         className="pointer-events-none select-none"
                       >
-                        ({node.value}억)
+                        ({node.value}{t('common.billion')})
                       </text>
 
                       {/* 확장 버튼 (접힌 노드) */}
@@ -838,21 +856,21 @@ export function CostNetworkGraph() {
                 <div className="flex items-start justify-between mb-4">
                   <div>
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-xl font-bold text-slate-900">{selInfo.node.label}</h3>
+                      <h3 className="text-xl font-bold text-slate-900">{nodeLabel(selInfo.node.label)}</h3>
                       <Badge className="text-xs bg-slate-100 text-slate-600 border-0">
-                        Level {selInfo.level} · {LEVEL_LABELS[selInfo.level] || ''}
+                        {t('network.levelLabel')} {selInfo.level} · {levelLabels[selInfo.level] || ''}
                       </Badge>
                     </div>
                     <div className="flex items-center gap-6">
                       <div>
-                        <div className="text-sm text-slate-500">총 원가</div>
-                        <div className="text-2xl font-bold text-slate-900">{selInfo.node.value}억원</div>
+                        <div className="text-sm text-slate-500">{t('network.totalCost')}</div>
+                        <div className="text-2xl font-bold text-slate-900">{selInfo.node.value}{t('common.billionWon')}</div>
                       </div>
                       <div>
-                        <div className="text-sm text-slate-500">차이</div>
+                        <div className="text-sm text-slate-500">{t('network.variance')}</div>
                         <div className={`text-2xl font-bold flex items-center gap-2 ${selInfo.node.variance > 0 ? 'text-red-600' : 'text-blue-600'}`}>
                           {selInfo.node.variance > 0 ? <TrendingUp className="w-6 h-6" /> : <TrendingDown className="w-6 h-6" />}
-                          {selInfo.node.variance > 0 ? '+' : ''}{selInfo.node.variance}억원
+                          {selInfo.node.variance > 0 ? '+' : ''}{selInfo.node.variance}{t('common.billionWon')}
                         </div>
                       </div>
                     </div>
@@ -865,9 +883,9 @@ export function CostNetworkGraph() {
                 {selInfo.node.children && selInfo.node.children.length > 0 && (
                   <div>
                     <div className="text-sm font-semibold text-slate-600 mb-3">
-                      하위 드라이버 ({selInfo.node.children.length}개)
+                      {t('network.subDrivers', { count: selInfo.node.children.length })}
                       {!expandedNodes.has(selectedNode!) && (
-                        <span className="text-blue-600 ml-2 font-normal">— 노드를 클릭하여 확장</span>
+                        <span className="text-blue-600 ml-2 font-normal">{t('network.clickToExpand')}</span>
                       )}
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -877,12 +895,12 @@ export function CostNetworkGraph() {
                           className="p-3 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-100 hover:border-blue-300 transition-colors"
                           onClick={() => { toggleNode(selectedNode!); }}
                         >
-                          <div className="text-sm font-medium text-slate-900 mb-1">{child.label}</div>
+                          <div className="text-sm font-medium text-slate-900 mb-1">{nodeLabel(child.label)}</div>
                           <div className={`text-lg font-bold ${child.variance > 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                            {child.variance > 0 ? '+' : ''}{child.variance}억
+                            {child.variance > 0 ? '+' : ''}{child.variance}{t('common.billion')}
                           </div>
                           <div className="text-[11px] text-slate-500 mt-0.5">
-                            {child.children ? `하위 ${child.children.length}개` : '말단 노드'}
+                            {child.children ? t('network.subCount', { count: child.children.length }) : t('network.leafNode')}
                           </div>
                         </div>
                       ))}

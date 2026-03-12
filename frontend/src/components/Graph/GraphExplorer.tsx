@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import ForceGraph2D from 'react-force-graph-2d'
 import { dashboardApi } from '../../services/api'
 
@@ -71,6 +72,7 @@ function measureNode(node: GNode, ctx: CanvasRenderingContext2D, fontSize: numbe
 
 /* ═══════════ 컴포넌트 ═══════════ */
 export default function GraphExplorer() {
+  const { t } = useTranslation()
   const [yyyymm, setYyyymm] = useState('202501')
   const [productCd, setProductCd] = useState('HBM_001')
   const [expandedSet, setExpandedSet] = useState<Set<string>>(new Set())
@@ -186,6 +188,16 @@ export default function GraphExplorer() {
     setMaxLevel(1)
     setTimeout(() => fgRef.current?.zoomToFit(400, 80), 400)
   }
+
+  /* ── 범례 노드 타입 ── */
+  const legendNodeTypes: [string, string][] = [
+    ['product', t('graph.productCost')],
+    ['cost_element', t('graph.costElement')],
+    ['sub_var', t('graph.subBreakdown')],
+    ['detail', t('graph.detailCause')],
+    ['event', t('graph.sourceEvent')],
+    ['spread', t('graph.spreadProduct')],
+  ]
 
   /* ══════════ Canvas 노드 렌더링 ══════════ */
   const paintNode = useCallback((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -337,18 +349,15 @@ export default function GraphExplorer() {
   return (
     <div>
       <div className="page-header">
-        <h2 className="page-title">그래프 기반 원인 추적</h2>
-        <p className="page-subtitle">
-          Neo4j 인과 그래프를 탐색하며 원가 변동의 원인을 추적합니다.
-          노드를 클릭하면 하위 원인이 펼쳐집니다.
-        </p>
+        <h2 className="page-title">{t('graph.title')}</h2>
+        <p className="page-subtitle">{t('graph.subtitle')}</p>
       </div>
 
       {/* ── 컨트롤 바 ── */}
       <div className="card" style={{ padding: '12px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontSize: 14, fontWeight: 600 }}>기준월</label>
+            <label style={{ fontSize: 14, fontWeight: 600 }}>{t('graph.baseMonth')}</label>
             <select value={yyyymm} onChange={e => setYyyymm(e.target.value)}
               className="product-selector">
               <option value="202501">2025.01</option>
@@ -356,7 +365,7 @@ export default function GraphExplorer() {
             </select>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontSize: 14, fontWeight: 600 }}>제품</label>
+            <label style={{ fontSize: 14, fontWeight: 600 }}>{t('graph.product')}</label>
             <select value={productCd} onChange={e => setProductCd(e.target.value)}
               className="product-selector">
               {PRODUCT_LIST.map(p => (
@@ -367,15 +376,15 @@ export default function GraphExplorer() {
           <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
             <button className="btn btn-primary" onClick={expandAll}
               style={{ padding: '6px 14px', fontSize: 13 }}>
-              전체 확장
+              {t('graph.expandAll')}
             </button>
             <button className="btn" onClick={collapseAll}
               style={{ padding: '6px 14px', fontSize: 13, border: '1px solid #e2e8f0' }}>
-              전체 축소
+              {t('graph.collapseAll')}
             </button>
             <button className="btn" onClick={() => fgRef.current?.zoomToFit(400, 80)}
               style={{ padding: '6px 14px', fontSize: 13, border: '1px solid #e2e8f0' }}>
-              화면 맞춤
+              {t('graph.fitToScreen')}
             </button>
           </div>
         </div>
@@ -384,15 +393,8 @@ export default function GraphExplorer() {
       {/* ── 범례 ── */}
       <div className="card" style={{ padding: '10px 20px' }}>
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>노드:</span>
-          {([
-            ['product', '제품 원가'],
-            ['cost_element', '원가요소'],
-            ['sub_var', '하위 분해'],
-            ['detail', '상세 원인'],
-            ['event', '소스 이벤트'],
-            ['spread', '파급 제품'],
-          ] as [string, string][]).map(([type, label]) => (
+          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{t('graph.nodeLabel')}</span>
+          {legendNodeTypes.map(([type, label]) => (
             <span key={type} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
               <span style={{
                 width: 14, height: 14, borderRadius: 3, display: 'inline-block',
@@ -403,7 +405,7 @@ export default function GraphExplorer() {
             </span>
           ))}
           <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 12 }}>
-            | 화살표 색상: 관계 유형별 구분
+            {t('graph.arrowColorNote')}
           </span>
         </div>
       </div>
@@ -413,7 +415,7 @@ export default function GraphExplorer() {
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: 80, color: '#94a3b8' }}>
             <div className="spinner" />
-            <p style={{ marginTop: 12 }}>그래프 데이터를 불러오는 중...</p>
+            <p style={{ marginTop: 12 }}>{t('graph.loadingGraph')}</p>
           </div>
         ) : (
           <ForceGraph2D
@@ -451,10 +453,10 @@ export default function GraphExplorer() {
           borderRadius: 6, fontSize: 12, color: '#64748b',
           border: '1px solid #e2e8f0', lineHeight: 1.8,
         }}>
-          <strong>조작법</strong><br />
-          노드 클릭 → 하위 원인 펼치기/접기<br />
-          마우스 휠 → 확대/축소<br />
-          드래그 → 이동
+          <strong>{t('graph.controlGuideTitle')}</strong><br />
+          {t('graph.controlGuide1')}<br />
+          {t('graph.controlGuide2')}<br />
+          {t('graph.controlGuide3')}
         </div>
 
         {/* ── 카운트 ── */}
@@ -464,8 +466,8 @@ export default function GraphExplorer() {
           borderRadius: 6, fontSize: 12, color: '#64748b',
           border: '1px solid #e2e8f0',
         }}>
-          표시: {filteredGraph.nodes.length}개 노드, {filteredGraph.links.length}개 관계
-          {rawGraph && ` / 전체 ${rawGraph.nodes.length}개`}
+          {t('graph.displayCount', { nodes: filteredGraph.nodes.length, links: filteredGraph.links.length })}
+          {rawGraph && ` / ${t('graph.totalCount', { total: rawGraph.nodes.length })}`}
         </div>
       </div>
     </div>

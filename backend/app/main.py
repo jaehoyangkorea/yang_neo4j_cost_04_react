@@ -9,9 +9,12 @@
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.db.database import init_db, close_db
@@ -57,15 +60,36 @@ app.include_router(analysis_router, prefix="/api/analysis", tags=["분석"])
 app.include_router(chat_router, prefix="/api/chat", tags=["챗"])
 app.include_router(report_router, prefix="/api/report", tags=["보고서"])
 
+# ── 프로덕션: React 빌드 정적 파일 서빙 (Azure Web App 등) ──
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+if STATIC_DIR.is_dir():
+    if (STATIC_DIR / "assets").is_dir():
+        app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+    if (STATIC_DIR / "static").is_dir():
+        app.mount("/static", StaticFiles(directory=STATIC_DIR / "static"), name="static")
+
 
 @app.get("/")
 async def root():
-    """헬스체크"""
+    """헬스체크 또는 SPA index.html"""
+    if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
+        return FileResponse(STATIC_DIR / "index.html")
     return {
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
         "status": "running",
     }
+
+
+if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """SPA 라우팅: /api 가 아닌 경로는 index.html 반환"""
+        if full_path.startswith("api/") or full_path.startswith("api"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/api/health")

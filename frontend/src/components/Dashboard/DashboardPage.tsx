@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import koJson from '../../i18n/ko.json'
 import {
   TrendingUp,
   TrendingDown,
@@ -45,6 +47,20 @@ import {
 } from 'recharts'
 import { dashboardApi } from '../../services/api'
 
+const CE_REVERSE: Record<string, string> = Object.fromEntries(
+  Object.entries(koJson.data.costElements).map(([key, val]) => [val, key]),
+)
+const PROC_REVERSE: Record<string, string> = Object.fromEntries(
+  Object.entries(koJson.data.processes).map(([key, val]) => [val, key]),
+)
+
+const TERM_KEYS: Record<string, string> = {}
+for (const [key, val] of Object.entries(koJson.data.costElements)) TERM_KEYS[val] = `data.costElements.${key}`
+for (const [key, val] of Object.entries(koJson.data.processes)) TERM_KEYS[val] = `data.processes.${key}`
+for (const [key, val] of Object.entries(koJson.data.terms as Record<string, string>)) TERM_KEYS[val] = `data.terms.${key}`
+TERM_KEYS['전공정'] = 'data.terms.전공정'
+TERM_KEYS['후공정'] = 'data.terms.후공정'
+
 /* ═══════════ 타입 ═══════════ */
 type DashboardView = 'overview' | 'process' | 'product' | 'drivers' | 'network'
 
@@ -71,7 +87,7 @@ interface CostBreakdownItem {
   amount: number
   change: number
   percent: number
-  trend: number[] // 6개월 추이
+  trend: number[]
   subAccounts: SubAccount[]
 }
 
@@ -364,21 +380,12 @@ const allocationDrivers = [
   { driver: '인원', current: 2340, previous: 2280, unit: '명' },
 ]
 
-const radarData = [
-  { subject: '재료비', current: 112, previous: 98, fullMark: 150 },
-  { subject: '노무비', current: 125, previous: 115, fullMark: 150 },
-  { subject: '경비', current: 98, previous: 85, fullMark: 150 },
-  { subject: '감가상각', current: 142, previous: 110, fullMark: 150 },
-  { subject: '전력비', current: 95, previous: 88, fullMark: 150 },
-]
-
 const PIE_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#64748b']
 
 /* ═══════════ 메인 대시보드 컴포넌트 ═══════════ */
 export default function DashboardPage({ selectedView }: DashboardPageProps) {
   const [yyyymm] = useState('202501')
 
-  // ── API 호출 ──
   const { data: summary } = useQuery({
     queryKey: ['summary', yyyymm],
     queryFn: () => dashboardApi.getSummary(yyyymm).then(r => r.data),
@@ -414,17 +421,14 @@ export default function DashboardPage({ selectedView }: DashboardPageProps) {
     enabled: selectedView === 'drivers',
   })
 
-  // ── Summary (Hero Cards) ──
   const currTotal = summary?.curr_total?.toFixed(0) || '2,227'
   const prevTotal = summary?.prev_total?.toFixed(0) || '2,162'
   const diffTotal = summary?.diff ? (summary.diff > 0 ? '+' : '') + summary.diff.toFixed(1) : '+64.1'
   const diffRate = summary?.rate ? (summary.rate > 0 ? '+' : '') + summary.rate.toFixed(1) : '+3.0'
 
-  // ── 추이 차트 데이터 변환 ──
   const apiTrend = trendResp?.trend || null
   const apiGroups = trendResp?.groups || null
 
-  // ── 원가요소 드릴다운 데이터 변환 ──
   const apiCostBreakdown: CostBreakdownItem[] | null = ceResp?.items
     ? ceResp.items.map((item: any) => ({
         category: item.category,
@@ -442,7 +446,6 @@ export default function DashboardPage({ selectedView }: DashboardPageProps) {
       }))
     : null
 
-  // ── 공정별 데이터 변환 (ProcessCostElement 인터페이스에 맞춤) ──
   const apiProcessData: ProcessDataItem[] | null = procResp?.items
     ? procResp.items.map((p: any) => ({
         process: p.proc_nm.replace('전공정_', '').replace('후공정_', ''),
@@ -461,7 +464,6 @@ export default function DashboardPage({ selectedView }: DashboardPageProps) {
       }))
     : null
 
-  // ── 제품군별 데이터 변환 ──
   const apiProductImpact: ProductImpactItem[] | null = byGroup?.items
     ? byGroup.items.map((item: any, idx: number) => ({
         product: item.product_grp,
@@ -471,7 +473,6 @@ export default function DashboardPage({ selectedView }: DashboardPageProps) {
       }))
     : null
 
-  // ── 배부기준 데이터 변환 ──
   const apiDrivers: AllocationDriverItem[] | null = allocResp?.items
     ? allocResp.items.map((item: any) => ({
         driver: `${item.proc_nm} · ${item.ce_nm}`,
@@ -508,7 +509,7 @@ export default function DashboardPage({ selectedView }: DashboardPageProps) {
 
 /* ═══════════ Overview View ═══════════ */
 function OverviewView({
-  costBreakdown,
+  costBreakdown: cbd,
   currTotal,
   prevTotal,
   diffTotal,
@@ -524,8 +525,15 @@ function OverviewView({
   trendData: any[]
   trendGroups: string[]
 }) {
+  const { t } = useTranslation()
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null)
   const [expandedSub, setExpandedSub] = useState<string | null>(null)
+  const b = t('common.billion')
+  const ceLabel = useCallback(
+    (cat: string) => { const k = CE_REVERSE[cat]; return k ? t(`data.costElements.${k}`) : cat },
+    [t],
+  )
+  const months = t('dashboard.months', { returnObjects: true }) as string[]
 
   return (
     <motion.div
@@ -539,69 +547,60 @@ function OverviewView({
         <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-xl">
           <CardContent className="p-6">
             <div className="flex items-start justify-between mb-4">
-              <div className="p-3 bg-white/20 rounded-lg">
-                <TrendingUp className="w-6 h-6" />
-              </div>
-              <Badge className="bg-white/20 text-white border-0">당월</Badge>
+              <div className="p-3 bg-white/20 rounded-lg"><TrendingUp className="w-6 h-6" /></div>
+              <Badge className="bg-white/20 text-white border-0">{t('common.currentMonth')}</Badge>
             </div>
-            <div className="text-3xl font-bold mb-1">{currTotal}억</div>
-            <div className="text-blue-100 text-sm">총 제조원가</div>
+            <div className="text-3xl font-bold mb-1">{currTotal}{b}</div>
+            <div className="text-blue-100 text-sm">{t('dashboard.totalMfgCost')}</div>
           </CardContent>
         </Card>
 
         <Card className="bg-gradient-to-br from-slate-700 to-slate-800 text-white border-0 shadow-xl">
           <CardContent className="p-6">
             <div className="flex items-start justify-between mb-4">
-              <div className="p-3 bg-white/20 rounded-lg">
-                <Activity className="w-6 h-6" />
-              </div>
-              <Badge className="bg-white/20 text-white border-0">전월</Badge>
+              <div className="p-3 bg-white/20 rounded-lg"><Activity className="w-6 h-6" /></div>
+              <Badge className="bg-white/20 text-white border-0">{t('common.previousMonth')}</Badge>
             </div>
-            <div className="text-3xl font-bold mb-1">{prevTotal}억</div>
-            <div className="text-slate-300 text-sm">기준 원가</div>
+            <div className="text-3xl font-bold mb-1">{prevTotal}{b}</div>
+            <div className="text-slate-300 text-sm">{t('dashboard.baseCost')}</div>
           </CardContent>
         </Card>
 
         <Card className="bg-gradient-to-br from-red-500 to-red-600 text-white border-0 shadow-xl">
           <CardContent className="p-6">
             <div className="flex items-start justify-between mb-4">
-              <div className="p-3 bg-white/20 rounded-lg">
-                <TrendingUp className="w-6 h-6" />
-              </div>
-              <Badge className="bg-white/20 text-white border-0">증감</Badge>
+              <div className="p-3 bg-white/20 rounded-lg"><TrendingUp className="w-6 h-6" /></div>
+              <Badge className="bg-white/20 text-white border-0">{t('common.change')}</Badge>
             </div>
-            <div className="text-3xl font-bold mb-1">{diffTotal}억</div>
-            <div className="text-red-100 text-sm">원가 증가액</div>
+            <div className="text-3xl font-bold mb-1">{diffTotal}{b}</div>
+            <div className="text-red-100 text-sm">{t('dashboard.costIncrease')}</div>
           </CardContent>
         </Card>
 
         <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-xl">
           <CardContent className="p-6">
             <div className="flex items-start justify-between mb-4">
-              <div className="p-3 bg-white/20 rounded-lg">
-                <Zap className="w-6 h-6" />
-              </div>
-              <Badge className="bg-white/20 text-white border-0">변동률</Badge>
+              <div className="p-3 bg-white/20 rounded-lg"><Zap className="w-6 h-6" /></div>
+              <Badge className="bg-white/20 text-white border-0">{t('common.changeRate')}</Badge>
             </div>
             <div className="text-3xl font-bold mb-1">{diffRate}%</div>
-            <div className="text-orange-100 text-sm">증감률</div>
+            <div className="text-orange-100 text-sm">{t('dashboard.changeRateLabel')}</div>
           </CardContent>
         </Card>
       </div>
 
       {/* Charts Row */}
       <div className="grid grid-cols-3 gap-6">
-        {/* Product Group Trend */}
         <Card className="col-span-2 shadow-lg border-slate-200">
           <CardContent className="p-6">
             <div className="flex items-center justify-between mb-6">
               <div>
-                <h3 className="text-lg font-bold text-slate-900">제품군별 원가 추이</h3>
-                <p className="text-sm text-slate-500">최근 6개월 제품군별 월별 추이 (억원)</p>
+                <h3 className="text-lg font-bold text-slate-900">{t('dashboard.productGroupTrend')}</h3>
+                <p className="text-sm text-slate-500">{t('dashboard.productGroupTrendDesc')}</p>
               </div>
               <Badge variant="outline" className="gap-2">
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                HBM 급증
+                {t('dashboard.hbmSurge')}
               </Badge>
             </div>
             <ResponsiveContainer width="100%" height={320}>
@@ -610,101 +609,51 @@ function OverviewView({
                 <XAxis dataKey="month" stroke="#64748b" fontSize={12} />
                 <YAxis stroke="#64748b" fontSize={12} />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                  }}
-                  formatter={(value: number, name: string) => [`${value}억`, name]}
+                  contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  formatter={(value: number, name: string) => [`${value}${b}`, name]}
                 />
-                <Legend
-                  iconType="circle"
-                  iconSize={8}
-                  wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
-                />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
                 {trendGroups.map((grp) => (
-                  <Line
-                    key={grp}
-                    type="monotone"
-                    dataKey={grp}
-                    stroke={PRODUCT_GROUP_COLORS[grp] || '#94a3b8'}
-                    strokeWidth={grp === 'HBM' ? 3 : 2}
-                    dot={{ r: grp === 'HBM' ? 4 : 2, fill: PRODUCT_GROUP_COLORS[grp] || '#94a3b8' }}
-                    activeDot={{ r: 6 }}
-                  />
+                  <Line key={grp} type="monotone" dataKey={grp} stroke={PRODUCT_GROUP_COLORS[grp] || '#94a3b8'} strokeWidth={grp === 'HBM' ? 3 : 2} dot={{ r: grp === 'HBM' ? 4 : 2, fill: PRODUCT_GROUP_COLORS[grp] || '#94a3b8' }} activeDot={{ r: 6 }} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        {/* Pie Chart */}
         <Card className="shadow-lg border-slate-200">
           <CardContent className="p-6">
             <div className="mb-6">
-              <h3 className="text-lg font-bold text-slate-900">원가 구성</h3>
-              <p className="text-sm text-slate-500">당월 비중</p>
+              <h3 className="text-lg font-bold text-slate-900">{t('dashboard.costComposition')}</h3>
+              <p className="text-sm text-slate-500">{t('dashboard.currentMonthShare')}</p>
             </div>
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
-                <Pie
-                  data={costBreakdown}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={90}
-                  paddingAngle={2}
-                  dataKey="percent"
-                >
-                  {costBreakdown.map((_entry, index) => (
-                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index]} />
-                  ))}
+                <Pie data={cbd} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={2} dataKey="percent">
+                  {cbd.map((_entry, index) => (<Cell key={`cell-${index}`} fill={PIE_COLORS[index]} />))}
                 </Pie>
-                <Tooltip
-                  formatter={(value: number) => `${value}%`}
-                  contentStyle={{
-                    backgroundColor: 'white',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                  }}
-                />
+                <Tooltip formatter={(value: number) => `${value}%`} contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       </div>
 
-      {/* Cost Element Breakdown with Drilldown + Sparklines */}
+      {/* Cost Element Breakdown */}
       <Card className="shadow-lg border-slate-200">
         <CardContent className="p-6">
           <div className="mb-6">
-            <h3 className="text-lg font-bold text-slate-900">원가요소별 증감 상세 (차이 큰 순)</h3>
-            <p className="text-sm text-slate-500">클릭하여 세부 계정 확인 · 하위 항목까지 드릴다운</p>
+            <h3 className="text-lg font-bold text-slate-900">{t('dashboard.costElementBreakdown')}</h3>
+            <p className="text-sm text-slate-500">{t('dashboard.costElementBreakdownDesc')}</p>
           </div>
-
           <div className="space-y-3">
-            {[...costBreakdown]
-              .sort((a, b) => b.change - a.change)
-              .map((item, index) => {
-                const prevAmt = item.amount - item.change
-                const changeRate = prevAmt !== 0 ? ((item.change / prevAmt) * 100).toFixed(1) : '0.0'
-                const months = ['8월', '9월', '10월', '11월', '12월', '1월']
-                return (
-                  <CostElementCard
-                    key={item.category}
-                    item={item}
-                    index={index}
-                    changeRate={changeRate}
-                    months={months}
-                    color={PIE_COLORS[costBreakdown.indexOf(item)]}
-                    isExpanded={expandedAccount === item.category}
-                    onToggle={() => setExpandedAccount(expandedAccount === item.category ? null : item.category)}
-                    expandedSub={expandedSub}
-                    onToggleSub={(subName: string) => setExpandedSub(expandedSub === subName ? null : subName)}
-                  />
-                )
-              })}
+            {[...cbd].sort((a, b) => b.change - a.change).map((item, index) => {
+              const prevAmt = item.amount - item.change
+              const changeRate = prevAmt !== 0 ? ((item.change / prevAmt) * 100).toFixed(1) : '0.0'
+              return (
+                <CostElementCard key={item.category} item={item} index={index} changeRate={changeRate} months={months} color={PIE_COLORS[cbd.indexOf(item)]} isExpanded={expandedAccount === item.category} onToggle={() => setExpandedAccount(expandedAccount === item.category ? null : item.category)} expandedSub={expandedSub} onToggleSub={(subName: string) => setExpandedSub(expandedSub === subName ? null : subName)} />
+              )
+            })}
           </div>
         </CardContent>
       </Card>
@@ -713,307 +662,191 @@ function OverviewView({
       <Card className="shadow-lg border-slate-200">
         <CardContent className="p-6">
           <div className="mb-6">
-            <h3 className="text-lg font-bold text-slate-900">원가요소 비교 레이더</h3>
-            <p className="text-sm text-slate-500">당월 vs 전월 다차원 비교</p>
+            <h3 className="text-lg font-bold text-slate-900">{t('dashboard.radarTitle')}</h3>
+            <p className="text-sm text-slate-500">{t('dashboard.radarDesc')}</p>
           </div>
           <ResponsiveContainer width="100%" height={350}>
-            <RadarChart data={costBreakdown.slice(0, 6).map(item => ({
-              subject: item.category,
-              current: item.amount,
-              previous: item.amount - item.change,
-              fullMark: Math.max(...costBreakdown.map(b => b.amount)) * 1.2,
-            }))}>
+            <RadarChart data={cbd.slice(0, 6).map(item => ({ subject: ceLabel(item.category), current: item.amount, previous: item.amount - item.change, fullMark: Math.max(...cbd.map(b => b.amount)) * 1.2 }))}>
               <PolarGrid stroke="#e2e8f0" />
               <PolarAngleAxis dataKey="subject" stroke="#64748b" />
               <PolarRadiusAxis stroke="#94a3b8" />
-              <Radar name="당월" dataKey="current" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} />
-              <Radar name="전월" dataKey="previous" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.3} />
+              <Radar name={t('common.currentMonth')} dataKey="current" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.6} />
+              <Radar name={t('common.previousMonth')} dataKey="previous" stroke="#94a3b8" fill="#94a3b8" fillOpacity={0.3} />
               <Legend />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                }}
-              />
+              <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px' }} />
             </RadarChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
 
-      {/* ═══════════ 경영진 보고서 ═══════════ */}
-      <ExecutiveReport
-        costBreakdown={costBreakdown}
-        currTotal={currTotal}
-        prevTotal={prevTotal}
-        diffTotal={diffTotal}
-        diffRate={diffRate}
-      />
+      {/* Executive Report */}
+      <ExecutiveReport costBreakdown={cbd} currTotal={currTotal} prevTotal={prevTotal} diffTotal={diffTotal} diffRate={diffRate} />
     </motion.div>
   )
 }
 
 /* ═══════════ 경영진 보고서 컴포넌트 ═══════════ */
-function ExecutiveReport({
-  costBreakdown,
-  currTotal,
-  prevTotal,
-  diffTotal,
-  diffRate,
-}: {
-  costBreakdown: CostBreakdownItem[]
-  currTotal: string
-  prevTotal: string
-  diffTotal: string
-  diffRate: string
+function ExecutiveReport({ costBreakdown: cbd, currTotal, prevTotal, diffTotal, diffRate }: {
+  costBreakdown: CostBreakdownItem[]; currTotal: string; prevTotal: string; diffTotal: string; diffRate: string
 }) {
-  const sortedByChange = [...costBreakdown].sort((a, b) => b.change - a.change)
+  const { t } = useTranslation()
+  const b = t('common.billion')
+  const ceLabel = useCallback(
+    (cat: string) => { const k = CE_REVERSE[cat]; return k ? t(`data.costElements.${k}`) : cat },
+    [t],
+  )
+  const sortedByChange = [...cbd].sort((a, b) => b.change - a.change)
   const topIncreases = sortedByChange.filter(item => item.change > 0)
-  const totalChange = costBreakdown.reduce((sum, item) => sum + item.change, 0)
-
-  // 가장 큰 증가 항목
+  const totalChange = cbd.reduce((sum, item) => sum + item.change, 0)
   const largest = sortedByChange[0]
   const largestRate = largest ? ((largest.change / (largest.amount - largest.change)) * 100).toFixed(1) : '0'
-
-  // 두번째로 큰 증가 항목
   const secondLargest = sortedByChange[1]
   const secondRate = secondLargest ? ((secondLargest.change / (secondLargest.amount - secondLargest.change)) * 100).toFixed(1) : '0'
+  const combinedPct = totalChange > 0 ? ((((largest?.change || 0) + (secondLargest?.change || 0)) / totalChange) * 100).toFixed(0) : '0'
+  const largestPct = totalChange > 0 ? (((largest?.change || 0) / totalChange) * 100).toFixed(0) : '0'
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.2 }}
-    >
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
       <Card className="shadow-xl border-slate-200 overflow-hidden">
-        {/* 보고서 헤더 */}
         <div className="bg-gradient-to-r from-slate-800 to-slate-900 px-8 py-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-white/10 rounded-xl">
-                <FileText className="w-7 h-7 text-white" />
-              </div>
+              <div className="p-3 bg-white/10 rounded-xl"><FileText className="w-7 h-7 text-white" /></div>
               <div>
-                <h3 className="text-xl font-bold text-white">경영진 원가차이 분석 보고서</h3>
-                <p className="text-slate-300 text-sm mt-1">2025년 1월 실적 vs 2024년 12월 기준 · 반도체 제조원가 월간 분석</p>
+                <h3 className="text-xl font-bold text-white">{t('dashboard.report.title')}</h3>
+                <p className="text-slate-300 text-sm mt-1">{t('dashboard.report.subtitle')}</p>
               </div>
             </div>
-            <Badge className="bg-white/15 text-white border-0 px-4 py-2 text-sm">
-              Monthly Report
-            </Badge>
+            <Badge className="bg-white/15 text-white border-0 px-4 py-2 text-sm">{t('common.monthlyReport')}</Badge>
           </div>
         </div>
 
         <CardContent className="p-8">
-          {/* 1. 총괄 요약 */}
+          {/* 1. Summary */}
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <BarChart3 className="w-5 h-5 text-blue-700" />
-              </div>
-              <h4 className="text-lg font-bold text-slate-900">1. 총괄 요약</h4>
+              <div className="p-2 bg-blue-100 rounded-lg"><BarChart3 className="w-5 h-5 text-blue-700" /></div>
+              <h4 className="text-lg font-bold text-slate-900">{t('dashboard.report.section1')}</h4>
             </div>
             <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6">
-              <p className="text-slate-700 leading-relaxed text-[15px]">
-                2025년 1월 총 제조원가는 <strong className="text-blue-700">{currTotal}억원</strong>으로,
-                전월({prevTotal}억원) 대비 <strong className="text-red-600">{diffTotal}억원({diffRate}%)</strong> 증가하였습니다.
-                전 원가요소에서 골고루 증가세를 보이고 있으며, 특히
-                <strong className="text-slate-900"> {largest?.category}</strong>({largest?.change > 0 ? '+' : ''}{largest?.change}억, +{largestRate}%)와
-                <strong className="text-slate-900"> {secondLargest?.category}</strong>({secondLargest?.change > 0 ? '+' : ''}{secondLargest?.change}억, +{secondRate}%)가
-                전체 증가분의 <strong className="text-slate-900">{totalChange > 0 ? ((((largest?.change || 0) + (secondLargest?.change || 0)) / totalChange) * 100).toFixed(0) : 0}%</strong>를
-                차지하며 핵심 비용 상승 요인으로 작용하였습니다.
-              </p>
+              <p className="text-slate-700 leading-relaxed text-[15px]" dangerouslySetInnerHTML={{
+                __html: t('dashboard.report.section1Text', {
+                  currTotal, prevTotal, diffTotal, diffRate,
+                  largest: ceLabel(largest?.category || ''), largestChange: largest?.change > 0 ? '+' + largest.change : largest?.change,
+                  largestRate, second: ceLabel(secondLargest?.category || ''),
+                  secondChange: secondLargest?.change > 0 ? '+' + secondLargest.change : secondLargest?.change,
+                  secondRate, combinedPct,
+                })
+              }} />
             </div>
           </div>
 
-          {/* 2. 원가요소별 차이 분석 */}
+          {/* 2. Cost Element Variance Table */}
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Target className="w-5 h-5 text-purple-700" />
-              </div>
-              <h4 className="text-lg font-bold text-slate-900">2. 원가요소별 차이 분석</h4>
+              <div className="p-2 bg-purple-100 rounded-lg"><Target className="w-5 h-5 text-purple-700" /></div>
+              <h4 className="text-lg font-bold text-slate-900">{t('dashboard.report.section2')}</h4>
             </div>
             <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
-              {/* 테이블 헤더 */}
               <div className="grid grid-cols-5 gap-4 px-6 py-3 bg-slate-100 text-xs font-bold text-slate-600 uppercase tracking-wider">
-                <div>원가요소</div>
-                <div className="text-right">당월 금액</div>
-                <div className="text-right">전월 대비 증감</div>
-                <div className="text-right">비중</div>
-                <div>주요 원인</div>
+                <div>{t('dashboard.report.tableHeader.costElement')}</div>
+                <div className="text-right">{t('dashboard.report.tableHeader.currentAmount')}</div>
+                <div className="text-right">{t('dashboard.report.tableHeader.changeVsPrev')}</div>
+                <div className="text-right">{t('dashboard.report.tableHeader.share')}</div>
+                <div>{t('dashboard.report.tableHeader.mainCause')}</div>
               </div>
               {sortedByChange.map((item, idx) => (
                 <div key={item.category} className={`grid grid-cols-5 gap-4 px-6 py-3.5 items-center ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'} border-t border-slate-100`}>
                   <div className="font-semibold text-slate-800 flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PIE_COLORS[costBreakdown.indexOf(item)] }} />
-                    {item.category}
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PIE_COLORS[cbd.indexOf(item)] }} />
+                    {ceLabel(item.category)}
                   </div>
-                  <div className="text-right font-semibold text-slate-700">{item.amount}억</div>
-                  <div className={`text-right font-bold ${item.change > 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                    {item.change > 0 ? '+' : ''}{item.change}억
-                  </div>
+                  <div className="text-right font-semibold text-slate-700">{item.amount}{b}</div>
+                  <div className={`text-right font-bold ${item.change > 0 ? 'text-red-600' : 'text-blue-600'}`}>{item.change > 0 ? '+' : ''}{item.change}{b}</div>
                   <div className="text-right text-slate-600">{item.percent}%</div>
-                  <div className="text-xs text-slate-500">
-                    {item.subAccounts.slice(0, 2).map(sa => sa.details[0]).filter(Boolean).join(', ')}
-                  </div>
+                  <div className="text-xs text-slate-500">{item.subAccounts.slice(0, 2).map(sa => sa.details[0]).filter(Boolean).join(', ')}</div>
                 </div>
               ))}
               <div className="grid grid-cols-5 gap-4 px-6 py-3.5 bg-slate-800 text-white font-bold">
-                <div>합계</div>
-                <div className="text-right">{currTotal}억</div>
-                <div className="text-right text-red-300">{diffTotal}억</div>
+                <div>{t('common.total')}</div>
+                <div className="text-right">{currTotal}{b}</div>
+                <div className="text-right text-red-300">{diffTotal}{b}</div>
                 <div className="text-right">100%</div>
                 <div></div>
               </div>
             </div>
           </div>
 
-          {/* 3. 주요 특이사항 */}
+          {/* 3. Highlights */}
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-amber-100 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-amber-700" />
-              </div>
-              <h4 className="text-lg font-bold text-slate-900">3. 주요 특이사항</h4>
+              <div className="p-2 bg-amber-100 rounded-lg"><AlertTriangle className="w-5 h-5 text-amber-700" /></div>
+              <h4 className="text-lg font-bold text-slate-900">{t('dashboard.report.section3')}</h4>
             </div>
             <div className="space-y-3">
-              <div className="flex gap-4 p-4 bg-red-50 border border-red-200 rounded-xl">
-                <div className="flex-shrink-0 w-8 h-8 bg-red-200 rounded-full flex items-center justify-center text-red-700 font-bold text-sm">1</div>
-                <div>
-                  <div className="font-semibold text-red-900 mb-1">EUV 장비 투입에 따른 감가상각비 급증</div>
-                  <p className="text-sm text-red-800/80 leading-relaxed">
-                    전공정 EUV 노광 장비 신규 투입으로 감가상각비가 전월 대비 <strong>+28.5억원</strong> 증가하였습니다.
-                    이는 전체 증가분의 <strong>{totalChange > 0 ? (((largest?.change || 0) / totalChange) * 100).toFixed(0) : 0}%</strong>를 차지하는
-                    최대 비용 상승 요인입니다. EUV 장비 1대당 연간 감가상각비가 약 200억원 수준으로, 향후 추가 투입 시 지속적인
-                    원가 압박이 예상됩니다.
-                  </p>
+              {[
+                { color: 'red', num: '1', title: t('dashboard.report.highlight1Title'), text: t('dashboard.report.highlight1Text', { pct: largestPct }) },
+                { color: 'orange', num: '2', title: t('dashboard.report.highlight2Title'), text: t('dashboard.report.highlight2Text') },
+                { color: 'emerald', num: '3', title: t('dashboard.report.highlight3Title'), text: t('dashboard.report.highlight3Text') },
+                { color: 'blue', num: '4', title: t('dashboard.report.highlight4Title'), text: t('dashboard.report.highlight4Text') },
+              ].map((hl) => (
+                <div key={hl.num} className={`flex gap-4 p-4 bg-${hl.color}-50 border border-${hl.color}-200 rounded-xl`}>
+                  <div className={`flex-shrink-0 w-8 h-8 bg-${hl.color}-200 rounded-full flex items-center justify-center text-${hl.color}-700 font-bold text-sm`}>{hl.num}</div>
+                  <div>
+                    <div className={`font-semibold text-${hl.color}-900 mb-1`}>{hl.title}</div>
+                    <p className={`text-sm text-${hl.color}-800/80 leading-relaxed`} dangerouslySetInnerHTML={{ __html: hl.text }} />
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex gap-4 p-4 bg-orange-50 border border-orange-200 rounded-xl">
-                <div className="flex-shrink-0 w-8 h-8 bg-orange-200 rounded-full flex items-center justify-center text-orange-700 font-bold text-sm">2</div>
-                <div>
-                  <div className="font-semibold text-orange-900 mb-1">CMP 슬러리 등 핵심 소재 단가 상승</div>
-                  <p className="text-sm text-orange-800/80 leading-relaxed">
-                    재료비가 <strong>+16.2억원</strong> 증가한 가운데, CMP 슬러리(+3.5억), 포토레지스트(+2.8억), 에칭 가스(+1.2억) 등
-                    핵심 공정 소재의 단가 상승이 주요 원인입니다. 글로벌 공급망 이슈와 고순도 소재 수요 증가가 배경입니다.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex gap-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-                <div className="flex-shrink-0 w-8 h-8 bg-emerald-200 rounded-full flex items-center justify-center text-emerald-700 font-bold text-sm">3</div>
-                <div>
-                  <div className="font-semibold text-emerald-900 mb-1">테스트 공정 자동화 효과 가시화</div>
-                  <p className="text-sm text-emerald-800/80 leading-relaxed">
-                    테스트 공정에서 자동화 도입에 따른 인건비 절감(<strong>-4.0억원</strong>)과 테스트 보드 효율화(<strong>-1.0억원</strong>)로
-                    총 <strong>-5.2억원</strong>의 원가 절감을 달성하였습니다.
-                    이는 전사 자동화 투자의 ROI를 입증하는 긍정적 사례입니다.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex gap-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                <div className="flex-shrink-0 w-8 h-8 bg-blue-200 rounded-full flex items-center justify-center text-blue-700 font-bold text-sm">4</div>
-                <div>
-                  <div className="font-semibold text-blue-900 mb-1">HBM 제품군 원가 급증세 지속</div>
-                  <p className="text-sm text-blue-800/80 leading-relaxed">
-                    HBM 제품군이 6개월 연속 원가 상승 추이를 보이고 있습니다 (8월 480억 → 1월 585억, <strong>+21.9%</strong>).
-                    AI 서버용 HBM 수요 급증에 따른 생산량 확대와 고단 적층 공정의 복잡성 증가가 원가 상승을 견인하고 있습니다.
-                  </p>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* 4. 향후 전망 및 주의사항 */}
+          {/* 4. Outlook */}
           <div className="mb-8">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-indigo-100 rounded-lg">
-                <Eye className="w-5 h-5 text-indigo-700" />
-              </div>
-              <h4 className="text-lg font-bold text-slate-900">4. 향후 전망 및 주의사항</h4>
+              <div className="p-2 bg-indigo-100 rounded-lg"><Eye className="w-5 h-5 text-indigo-700" /></div>
+              <h4 className="text-lg font-bold text-slate-900">{t('dashboard.report.section4')}</h4>
             </div>
-
             <div className="grid grid-cols-2 gap-6">
-              {/* 향후 전망 */}
               <div className="bg-gradient-to-br from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl p-6">
-                <h5 className="font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4" />
-                  향후 전망
-                </h5>
+                <h5 className="font-bold text-indigo-900 mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4" />{t('dashboard.report.outlookTitle')}</h5>
                 <ul className="space-y-3">
-                  <li className="flex gap-3 text-sm text-indigo-800/80">
-                    <span className="flex-shrink-0 w-5 h-5 bg-indigo-200 rounded-full flex items-center justify-center text-indigo-700 text-xs font-bold">1</span>
-                    <span>2월에도 EUV 장비 추가 가동 예정으로 감가상각비 <strong>+15~20억원</strong> 추가 증가가 예상됩니다.</span>
-                  </li>
-                  <li className="flex gap-3 text-sm text-indigo-800/80">
-                    <span className="flex-shrink-0 w-5 h-5 bg-indigo-200 rounded-full flex items-center justify-center text-indigo-700 text-xs font-bold">2</span>
-                    <span>HBM3E 양산 본격화에 따라 후공정(조립/패키징) 원가가 <strong>Q1 대비 8~12%</strong> 상승할 전망입니다.</span>
-                  </li>
-                  <li className="flex gap-3 text-sm text-indigo-800/80">
-                    <span className="flex-shrink-0 w-5 h-5 bg-indigo-200 rounded-full flex items-center justify-center text-indigo-700 text-xs font-bold">3</span>
-                    <span>웨이퍼 단가 하락세 지속으로 재료비 일부 상쇄 효과가 기대되며, 전체 원가 증가율은 <strong>2.5~3.5%</strong> 수준을 유지할 것으로 전망됩니다.</span>
-                  </li>
-                  <li className="flex gap-3 text-sm text-indigo-800/80">
-                    <span className="flex-shrink-0 w-5 h-5 bg-indigo-200 rounded-full flex items-center justify-center text-indigo-700 text-xs font-bold">4</span>
-                    <span>PC DRAM, NAND 등 레거시 제품군은 원가 감소 추세가 이어져, 제품 포트폴리오 믹스 효과로 전체 수익성에 긍정적으로 작용할 전망입니다.</span>
-                  </li>
+                  {[t('dashboard.report.outlook1'), t('dashboard.report.outlook2'), t('dashboard.report.outlook3'), t('dashboard.report.outlook4')].map((text, i) => (
+                    <li key={i} className="flex gap-3 text-sm text-indigo-800/80">
+                      <span className="flex-shrink-0 w-5 h-5 bg-indigo-200 rounded-full flex items-center justify-center text-indigo-700 text-xs font-bold">{i + 1}</span>
+                      <span dangerouslySetInnerHTML={{ __html: text }} />
+                    </li>
+                  ))}
                 </ul>
               </div>
-
-              {/* 주의 깊게 봐야 할 사항 */}
               <div className="bg-gradient-to-br from-red-50 to-orange-50 border border-red-200 rounded-xl p-6">
-                <h5 className="font-bold text-red-900 mb-4 flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4" />
-                  주의 깊게 봐야 할 사항
-                </h5>
+                <h5 className="font-bold text-red-900 mb-4 flex items-center gap-2"><AlertTriangle className="w-4 h-4" />{t('dashboard.report.cautionTitle')}</h5>
                 <ul className="space-y-3">
-                  <li className="flex gap-3 text-sm text-red-800/80">
-                    <span className="flex-shrink-0 w-5 h-5 bg-red-200 rounded-full flex items-center justify-center text-red-700 text-xs font-bold">!</span>
-                    <span><strong>감가상각비 비중 37.8%:</strong> 전체 원가의 40%에 육박하는 수준으로, 대규모 설비 투자에 따른 고정비 부담이 가중되고 있습니다. 가동률 관리가 핵심입니다.</span>
-                  </li>
-                  <li className="flex gap-3 text-sm text-red-800/80">
-                    <span className="flex-shrink-0 w-5 h-5 bg-red-200 rounded-full flex items-center justify-center text-red-700 text-xs font-bold">!</span>
-                    <span><strong>핵심 소재 공급 리스크:</strong> CMP 슬러리, 포토레지스트 등 일본 의존도가 높은 소재의 단가 상승이 지속되고 있어 대체 공급처 확보가 시급합니다.</span>
-                  </li>
-                  <li className="flex gap-3 text-sm text-red-800/80">
-                    <span className="flex-shrink-0 w-5 h-5 bg-red-200 rounded-full flex items-center justify-center text-red-700 text-xs font-bold">!</span>
-                    <span><strong>전력비 구조적 증가:</strong> EUV 장비의 전력 소모가 기존 ArF 대비 10배 이상으로, 첨단 공정 비중 확대 시 전력비 급증이 불가피합니다.</span>
-                  </li>
-                  <li className="flex gap-3 text-sm text-red-800/80">
-                    <span className="flex-shrink-0 w-5 h-5 bg-red-200 rounded-full flex items-center justify-center text-red-700 text-xs font-bold">!</span>
-                    <span><strong>인건비 안정화 필요:</strong> 반도체 업계 인력난으로 숙련공 확보 경쟁이 심화되고 있어, 인건비 증가 추세가 향후 가속화될 수 있습니다.</span>
-                  </li>
+                  {[t('dashboard.report.caution1'), t('dashboard.report.caution2'), t('dashboard.report.caution3'), t('dashboard.report.caution4')].map((text, i) => (
+                    <li key={i} className="flex gap-3 text-sm text-red-800/80">
+                      <span className="flex-shrink-0 w-5 h-5 bg-red-200 rounded-full flex items-center justify-center text-red-700 text-xs font-bold">!</span>
+                      <span dangerouslySetInnerHTML={{ __html: text }} />
+                    </li>
+                  ))}
                 </ul>
               </div>
             </div>
           </div>
 
-          {/* 5. 종합 의견 */}
+          {/* 5. Conclusion */}
           <div>
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-slate-200 rounded-lg">
-                <FileText className="w-5 h-5 text-slate-700" />
-              </div>
-              <h4 className="text-lg font-bold text-slate-900">5. 종합 의견</h4>
+              <div className="p-2 bg-slate-200 rounded-lg"><FileText className="w-5 h-5 text-slate-700" /></div>
+              <h4 className="text-lg font-bold text-slate-900">{t('dashboard.report.section5')}</h4>
             </div>
             <div className="bg-gradient-to-br from-slate-50 to-slate-100 border-2 border-slate-200 rounded-xl p-6">
-              <p className="text-slate-700 leading-relaxed text-[15px] mb-4">
-                금월 원가 증가(+{diffTotal}억, {diffRate}%)는 <strong>EUV 등 첨단 장비 투자에 따른 구조적 비용 증가</strong>가
-                주된 원인으로, 단기적 비용 억제보다는 <strong>장기적 기술 경쟁력 확보 관점</strong>에서의 전략적 판단이 필요합니다.
-              </p>
-              <p className="text-slate-700 leading-relaxed text-[15px] mb-4">
-                다만, 감가상각비가 전체의 37.8%에 달하는 상황에서 <strong>설비 가동률 극대화</strong>와 <strong>제품 믹스 최적화</strong>를 통해
-                단위당 원가를 관리하는 것이 수익성 확보의 핵심입니다. 테스트 공정의 자동화 성과(-5.2억)를 벤치마킹하여
-                타 공정으로의 자동화 확산도 적극 검토할 것을 권고합니다.
-              </p>
+              <p className="text-slate-700 leading-relaxed text-[15px] mb-4" dangerouslySetInnerHTML={{ __html: t('dashboard.report.conclusion1', { diffTotal, diffRate }) }} />
+              <p className="text-slate-700 leading-relaxed text-[15px] mb-4" dangerouslySetInnerHTML={{ __html: t('dashboard.report.conclusion2') }} />
               <div className="flex items-center gap-6 pt-4 border-t border-slate-200 mt-4 text-xs text-slate-500">
-                <span>작성: 원가관리팀</span>
-                <span>기준일: 2025년 1월</span>
-                <span>분석 기간: 2024.08 ~ 2025.01 (6개월)</span>
-                <span>데이터 출처: Neo4j 원가 그래프DB · MES · SAP ERP</span>
+                <span>{t('dashboard.report.author')}</span>
+                <span>{t('dashboard.report.baseDate')}</span>
+                <span>{t('dashboard.report.analysisPeriod')}</span>
+                <span>{t('dashboard.report.dataSource')}</span>
               </div>
             </div>
           </div>
@@ -1023,9 +856,9 @@ function ExecutiveReport({
   )
 }
 
-/* ═══════════ 인라인 스파크라인 (SVG) ═══════════ */
+/* ═══════════ 인라인 스파크라인 ═══════════ */
 function MiniSparkline({ data, color = '#ef4444', width = 80, height = 28 }: {
-  data: number[], color?: string, width?: number, height?: number
+  data: number[]; color?: string; width?: number; height?: number
 }) {
   if (!data.length) return null
   const min = Math.min(...data)
@@ -1039,189 +872,97 @@ function MiniSparkline({ data, color = '#ef4444', width = 80, height = 28 }: {
 
   return (
     <svg width={width} height={height} className="inline-block">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* 마지막 점 강조 */}
-      {(() => {
-        const lastX = width
-        const lastY = height - ((data[data.length - 1] - min) / range) * (height - 4) - 2
-        return <circle cx={lastX} cy={lastY} r="2.5" fill={color} />
-      })()}
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      {(() => { const lastX = width; const lastY = height - ((data[data.length - 1] - min) / range) * (height - 4) - 2; return <circle cx={lastX} cy={lastY} r="2.5" fill={color} /> })()}
     </svg>
   )
 }
 
-/* ═══════════ 원가요소 카드 컴포넌트 ═══════════ */
-function CostElementCard({
-  item, index, changeRate, months, color, isExpanded, onToggle, expandedSub, onToggleSub,
-}: {
-  item: CostBreakdownItem
-  index: number
-  changeRate: string
-  months: string[]
-  color: string
-  isExpanded: boolean
-  onToggle: () => void
-  expandedSub: string | null
-  onToggleSub: (name: string) => void
+function translateText(text: string, tFn: (key: string) => string): string {
+  const directKey = TERM_KEYS[text]
+  if (directKey) return tFn(directKey)
+  const parts = text.split(/[\s_/·]+/)
+  if (parts.length > 1) {
+    const translated = parts.map(p => { const k = TERM_KEYS[p]; return k ? tFn(k) : p })
+    return translated.join(' ')
+  }
+  return text
+}
+
+/* ═══════════ 원가요소 카드 ═══════════ */
+function CostElementCard({ item, index, changeRate, months, color, isExpanded, onToggle, expandedSub, onToggleSub }: {
+  item: CostBreakdownItem; index: number; changeRate: string; months: string[]; color: string; isExpanded: boolean; onToggle: () => void; expandedSub: string | null; onToggleSub: (name: string) => void
 }) {
+  const { t } = useTranslation()
+  const b = t('common.billion')
+  const ceLabel = useCallback(
+    (cat: string) => { const k = CE_REVERSE[cat]; return k ? t(`data.costElements.${k}`) : cat },
+    [t],
+  )
+  const tt = useCallback((text: string) => translateText(text, t), [t])
+
   return (
     <div>
-      {/* ── 헤더 (클릭하면 하위 펼침) ── */}
-      <motion.div
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: index * 0.05 }}
-        onClick={onToggle}
-        className={`p-5 rounded-xl border-2 transition-all cursor-pointer ${
-          isExpanded
-            ? 'bg-white border-blue-200 shadow-lg'
-            : 'bg-gradient-to-r from-slate-50 to-white border-slate-200 hover:shadow-md'
-        }`}
-      >
+      <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: index * 0.05 }} onClick={onToggle}
+        className={`p-5 rounded-xl border-2 transition-all cursor-pointer ${isExpanded ? 'bg-white border-blue-200 shadow-lg' : 'bg-gradient-to-r from-slate-50 to-white border-slate-200 hover:shadow-md'}`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-            <span className="font-semibold text-slate-900">{item.category}</span>
-            <motion.div
-              animate={{ rotate: isExpanded ? 180 : 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <ChevronDown className="w-5 h-5 text-slate-400" />
-            </motion.div>
+            <span className="font-semibold text-slate-900">{ceLabel(item.category)}</span>
+            <motion.div animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}><ChevronDown className="w-5 h-5 text-slate-400" /></motion.div>
           </div>
-          <Badge className={item.change > 0 ? 'bg-red-100 text-red-700 border-0' : 'bg-blue-100 text-blue-700 border-0'}>
-            {item.change > 0 ? '+' : ''}{item.change}억
-          </Badge>
+          <Badge className={item.change > 0 ? 'bg-red-100 text-red-700 border-0' : 'bg-blue-100 text-blue-700 border-0'}>{item.change > 0 ? '+' : ''}{item.change}{b}</Badge>
         </div>
-
         <div className="flex items-end justify-between">
-          {/* 왼쪽: 금액 + 비중 */}
           <div>
-            <div className="text-2xl font-bold text-slate-900">{item.amount}억</div>
-            <div className="text-xs text-slate-500">전체의 {item.percent}%</div>
+            <div className="text-2xl font-bold text-slate-900">{item.amount}{b}</div>
+            <div className="text-xs text-slate-500">{t('dashboard.ofTotal', { percent: item.percent })}</div>
           </div>
-
-          {/* 오른쪽: 전월 대비 (크게) + 6개월 스파크라인 */}
           <div className="flex items-center gap-4">
-            {/* 전월대비 */}
             <div className="text-right">
-              <div className={`text-2xl font-extrabold ${item.change > 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                {item.change > 0 ? '+' : ''}{changeRate}%
-              </div>
-              <div className="text-[11px] text-slate-400">전월 대비</div>
+              <div className={`text-2xl font-extrabold ${item.change > 0 ? 'text-red-600' : 'text-blue-600'}`}>{item.change > 0 ? '+' : ''}{changeRate}%</div>
+              <div className="text-[11px] text-slate-400">{t('dashboard.vsPrevMonth')}</div>
             </div>
-
-            {/* 6개월 스파크라인 + 수치 */}
             <div className="flex flex-col items-end gap-0.5 pl-3 border-l border-slate-200">
               <MiniSparkline data={item.trend} color={item.change > 0 ? '#ef4444' : '#3b82f6'} width={120} height={30} />
-              <div className="flex gap-[2px]">
-                {item.trend.map((v, i) => (
-                  <span key={i} className="text-[8px] text-slate-400 w-[20px] text-center leading-none">
-                    {months[i]}
-                  </span>
-                ))}
-              </div>
-              <div className="flex gap-[2px]">
-                {item.trend.map((v, i) => (
-                  <span key={i} className="text-[8px] text-slate-500 w-[20px] text-center font-medium leading-none">
-                    {Math.round(v)}
-                  </span>
-                ))}
-              </div>
+              <div className="flex gap-[2px]">{item.trend.map((_v, i) => (<span key={i} className="text-[8px] text-slate-400 w-[20px] text-center leading-none">{months[i]}</span>))}</div>
+              <div className="flex gap-[2px]">{item.trend.map((v, i) => (<span key={i} className="text-[8px] text-slate-500 w-[20px] text-center font-medium leading-none">{Math.round(v)}</span>))}</div>
             </div>
           </div>
         </div>
       </motion.div>
 
-      {/* ── 1단 드릴다운: 하위 계정 ── */}
       <AnimatePresence>
         {isExpanded && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3 }}
-            className="ml-6 mt-2 space-y-2 overflow-hidden"
-          >
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className="ml-6 mt-2 space-y-2 overflow-hidden">
             {item.subAccounts?.map((sub, subIdx) => (
               <div key={sub.name}>
-                <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: subIdx * 0.08 }}
+                <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: subIdx * 0.08 }}
                   onClick={(e) => { e.stopPropagation(); if (sub.items?.length) onToggleSub(sub.name) }}
-                  className={`p-4 rounded-lg border shadow-sm transition-all ${
-                    sub.items?.length ? 'cursor-pointer hover:shadow-md' : ''
-                  } ${
-                    expandedSub === sub.name ? 'bg-blue-50 border-blue-200' : 'bg-white border-slate-200'
-                  }`}
-                >
+                  className={`p-4 rounded-lg border shadow-sm transition-all ${sub.items?.length ? 'cursor-pointer hover:shadow-md' : ''} ${expandedSub === sub.name ? 'bg-blue-50 border-blue-200' : 'bg-white border-slate-200'}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      {sub.items?.length ? (
-                        <motion.div
-                          animate={{ rotate: expandedSub === sub.name ? 90 : 0 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <ChevronRight className="w-4 h-4 text-slate-500" />
-                        </motion.div>
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-slate-300" />
-                      )}
-                      <span className="font-medium text-slate-700">{sub.name}</span>
+                      {sub.items?.length ? (<motion.div animate={{ rotate: expandedSub === sub.name ? 90 : 0 }} transition={{ duration: 0.2 }}><ChevronRight className="w-4 h-4 text-slate-500" /></motion.div>) : (<ChevronRight className="w-4 h-4 text-slate-300" />)}
+                      <span className="font-medium text-slate-700">{tt(sub.name)}</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-sm font-semibold text-slate-700">{sub.amount}억</span>
-                      <Badge className={`border-0 text-xs ${sub.change > 0 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>
-                        {sub.change > 0 ? '+' : ''}{sub.change}억
-                      </Badge>
+                      <span className="text-sm font-semibold text-slate-700">{sub.amount}{b}</span>
+                      <Badge className={`border-0 text-xs ${sub.change > 0 ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-600'}`}>{sub.change > 0 ? '+' : ''}{sub.change}{b}</Badge>
                     </div>
                   </div>
-                  {/* 설명 */}
                   <div className="ml-6 mt-1.5 space-y-0.5">
-                    {sub.details.map((detail, detailIdx) => (
-                      <div key={detailIdx} className="text-xs text-slate-500 flex items-center gap-2">
-                        <div className="w-1 h-1 bg-slate-400 rounded-full" />
-                        {detail}
-                      </div>
-                    ))}
+                    {sub.details.map((detail, detailIdx) => (<div key={detailIdx} className="text-xs text-slate-500 flex items-center gap-2"><div className="w-1 h-1 bg-slate-400 rounded-full" />{detail}</div>))}
                   </div>
                 </motion.div>
-
-                {/* ── 2단 드릴다운: 세부 항목 ── */}
                 <AnimatePresence>
                   {expandedSub === sub.name && sub.items && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.25 }}
-                      className="ml-8 mt-1.5 space-y-1.5 overflow-hidden"
-                    >
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.25 }} className="ml-8 mt-1.5 space-y-1.5 overflow-hidden">
                       {sub.items.map((itm, itmIdx) => (
-                        <motion.div
-                          key={itm.name}
-                          initial={{ opacity: 0, x: -12 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: itmIdx * 0.06 }}
-                          className="flex items-center justify-between p-3 bg-slate-50 rounded-md border border-slate-100"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                            <span className="text-sm text-slate-600">{itm.name}</span>
-                          </div>
+                        <motion.div key={itm.name} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: itmIdx * 0.06 }} className="flex items-center justify-between p-3 bg-slate-50 rounded-md border border-slate-100">
+                          <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-slate-400" /><span className="text-sm text-slate-600">{tt(itm.name)}</span></div>
                           <div className="flex items-center gap-3">
-                            <span className="text-sm text-slate-600">{itm.amount}억</span>
-                            <span className={`text-xs font-semibold ${itm.change > 0 ? 'text-red-500' : 'text-blue-500'}`}>
-                              {itm.change > 0 ? '+' : ''}{itm.change}억
-                            </span>
+                            <span className="text-sm text-slate-600">{itm.amount}{b}</span>
+                            <span className={`text-xs font-semibold ${itm.change > 0 ? 'text-red-500' : 'text-blue-500'}`}>{itm.change > 0 ? '+' : ''}{itm.change}{b}</span>
                           </div>
                         </motion.div>
                       ))}
@@ -1237,11 +978,20 @@ function CostElementCard({
   )
 }
 
-/* ═══════════ Process View — 수평 파이프라인 ═══════════ */
+/* ═══════════ Process View ═══════════ */
 function ProcessView({ data }: { data: ProcessDataItem[] }) {
+  const { t } = useTranslation()
+  const b = t('common.billion')
   const [selectedProcess, setSelectedProcess] = useState<string | null>(null)
+  const procLabel = useCallback(
+    (proc: string) => { const k = PROC_REVERSE[proc]; return k ? t(`data.processes.${k}`) : proc },
+    [t],
+  )
+  const ceLabel = useCallback(
+    (cat: string) => { const k = CE_REVERSE[cat]; return k ? t(`data.costElements.${k}`) : cat },
+    [t],
+  )
 
-  // 공정 순서: 전공정 → 후공정
   const feProcesses = data.filter(p => p.proc_type === 'FE' || (!p.proc_type && p.frontend > 0))
   const beProcesses = data.filter(p => p.proc_type === 'BE' || (!p.proc_type && p.backend > 0))
   const selected = data.find(p => p.process === selectedProcess)
@@ -1257,211 +1007,111 @@ function ProcessView({ data }: { data: ProcessDataItem[] }) {
     const isActive = selectedProcess === process.process
     const colors = getVarianceColor(process.variance)
     return (
-      <motion.div
-        whileHover={{ y: -4, scale: 1.03 }}
-        whileTap={{ scale: 0.97 }}
-        onClick={() => setSelectedProcess(isActive ? null : process.process)}
-        className={`relative cursor-pointer flex-shrink-0`}
-      >
-        <div
-          className={`w-[100px] h-[100px] rounded-2xl bg-gradient-to-br ${colors.bg} shadow-lg flex flex-col items-center justify-center transition-all ${
-            isActive ? `ring-4 ${colors.ring} shadow-2xl scale-105` : 'hover:shadow-xl'
-          }`}
-        >
-          <span className={`text-sm font-bold ${colors.text}`}>{process.process}</span>
-          <span className={`text-lg font-extrabold ${colors.text} mt-0.5`}>
-            {process.variance > 0 ? '+' : ''}{process.variance}
-          </span>
-          <span className={`text-[10px] ${colors.text} opacity-80`}>억원</span>
+      <motion.div whileHover={{ y: -4, scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={() => setSelectedProcess(isActive ? null : process.process)} className="relative cursor-pointer flex-shrink-0">
+        <div className={`w-[100px] h-[100px] rounded-2xl bg-gradient-to-br ${colors.bg} shadow-lg flex flex-col items-center justify-center transition-all ${isActive ? `ring-4 ${colors.ring} shadow-2xl scale-105` : 'hover:shadow-xl'}`}>
+          <span className={`text-sm font-bold ${colors.text}`}>{procLabel(process.process)}</span>
+          <span className={`text-lg font-extrabold ${colors.text} mt-0.5`}>{process.variance > 0 ? '+' : ''}{process.variance}</span>
+          <span className={`text-[10px] ${colors.text} opacity-80`}>{t('common.billionWon')}</span>
         </div>
-        {/* 선택 인디케이터 */}
-        {isActive && (
-          <motion.div
-            layoutId="processIndicator"
-            className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent border-t-blue-500"
-          />
-        )}
+        {isActive && (<motion.div layoutId="processIndicator" className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-0 h-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent border-t-blue-500" />)}
       </motion.div>
     )
   }
 
-  const ArrowConnector = () => (
-    <div className="flex items-center flex-shrink-0 mx-1">
-      <div className="w-6 h-[2px] bg-slate-300" />
-      <ChevronRight className="w-4 h-4 text-slate-300 -ml-1" />
-    </div>
-  )
-
-  const SectionDivider = () => (
-    <div className="flex items-center flex-shrink-0 mx-3">
-      <div className="w-[2px] h-16 bg-slate-200 rounded-full" />
-    </div>
-  )
+  const ArrowConnector = () => (<div className="flex items-center flex-shrink-0 mx-1"><div className="w-6 h-[2px] bg-slate-300" /><ChevronRight className="w-4 h-4 text-slate-300 -ml-1" /></div>)
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      className="space-y-6"
-    >
-      {/* Header */}
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">공정별 원가 분석</h2>
-          <p className="text-slate-500">공정을 클릭하면 주요 비용 계정이 표시됩니다</p>
+          <h2 className="text-2xl font-bold text-slate-900">{t('dashboard.processView.title')}</h2>
+          <p className="text-slate-500">{t('dashboard.processView.subtitle')}</p>
         </div>
         <div className="flex gap-2">
-          <Badge className="bg-blue-100 text-blue-700 border-0 px-3 py-1.5 text-xs">전공정 {feProcesses.length}개</Badge>
-          <Badge className="bg-purple-100 text-purple-700 border-0 px-3 py-1.5 text-xs">후공정 {beProcesses.length}개</Badge>
+          <Badge className="bg-blue-100 text-blue-700 border-0 px-3 py-1.5 text-xs">{t('dashboard.processView.feCount', { count: feProcesses.length })}</Badge>
+          <Badge className="bg-purple-100 text-purple-700 border-0 px-3 py-1.5 text-xs">{t('dashboard.processView.beCount', { count: beProcesses.length })}</Badge>
         </div>
       </div>
 
-      {/* 공정 파이프라인 */}
       <Card className="shadow-lg border-slate-200">
         <CardContent className="p-6">
-          {/* 범례 */}
           <div className="flex items-center gap-4 mb-6 text-xs text-slate-500">
-            <span className="font-semibold text-slate-700">차이 크기:</span>
-            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-gradient-to-br from-red-500 to-red-600" /><span>&gt;15억</span></div>
-            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-gradient-to-br from-orange-400 to-orange-500" /><span>5~15억</span></div>
-            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-gradient-to-br from-amber-400 to-yellow-400" /><span>0~5억</span></div>
-            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-gradient-to-br from-blue-400 to-blue-500" /><span>감소</span></div>
+            <span className="font-semibold text-slate-700">{t('dashboard.processView.varianceSize')}</span>
+            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-gradient-to-br from-red-500 to-red-600" /><span>{t('dashboard.processView.gt15')}</span></div>
+            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-gradient-to-br from-orange-400 to-orange-500" /><span>{t('dashboard.processView.range5to15')}</span></div>
+            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-gradient-to-br from-amber-400 to-yellow-400" /><span>{t('dashboard.processView.range0to5')}</span></div>
+            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-gradient-to-br from-blue-400 to-blue-500" /><span>{t('dashboard.processView.decrease')}</span></div>
           </div>
 
-          {/* 전공정 라벨 */}
-          <div className="mb-2">
-            <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">전공정 (FAB)</span>
-          </div>
-
-          {/* 전공정 플로우 */}
+          <div className="mb-2"><span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{t('dashboard.processView.feFAB')}</span></div>
           <div className="flex items-center overflow-x-auto pb-2 mb-4">
-            {feProcesses.map((p, i) => (
-              <div key={p.process} className="flex items-center">
-                <ProcessNode process={p} />
-                {i < feProcesses.length - 1 && <ArrowConnector />}
-              </div>
-            ))}
+            {feProcesses.map((p, i) => (<div key={p.process} className="flex items-center"><ProcessNode process={p} />{i < feProcesses.length - 1 && <ArrowConnector />}</div>))}
           </div>
 
-          {/* 후공정 라벨 */}
-          <div className="mb-2 mt-2">
-            <span className="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded">후공정 (패키징)</span>
-          </div>
-
-          {/* 후공정 플로우 */}
+          <div className="mb-2 mt-2"><span className="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded">{t('dashboard.processView.bePackaging')}</span></div>
           <div className="flex items-center overflow-x-auto pb-2">
-            {beProcesses.map((p, i) => (
-              <div key={p.process} className="flex items-center">
-                <ProcessNode process={p} />
-                {i < beProcesses.length - 1 && <ArrowConnector />}
-              </div>
-            ))}
+            {beProcesses.map((p, i) => (<div key={p.process} className="flex items-center"><ProcessNode process={p} />{i < beProcesses.length - 1 && <ArrowConnector />}</div>))}
           </div>
         </CardContent>
       </Card>
 
-      {/* 선택된 공정 상세 */}
       <AnimatePresence mode="wait">
         {selected && (
-          <motion.div
-            key={selected.process}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3 }}
-          >
+          <motion.div key={selected.process} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.3 }}>
             <Card className="shadow-xl border-2 border-blue-400">
               <CardContent className="p-6">
-                {/* 공정 헤더 */}
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-4">
                     <div className={`p-3 rounded-xl ${selected.frontend > 0 ? 'bg-blue-100' : 'bg-purple-100'}`}>
-                      {selected.frontend > 0 ? (
-                        <Cpu className="w-7 h-7 text-blue-600" />
-                      ) : (
-                        <Package className="w-7 h-7 text-purple-600" />
-                      )}
+                      {selected.frontend > 0 ? <Cpu className="w-7 h-7 text-blue-600" /> : <Package className="w-7 h-7 text-purple-600" />}
                     </div>
                     <div>
                       <div className="flex items-center gap-3">
-                        <h3 className="text-xl font-bold text-slate-900">{selected.process} 공정</h3>
-                        <Badge className={`border-0 ${selected.frontend > 0 ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                          {selected.frontend > 0 ? '전공정' : '후공정'}
-                        </Badge>
+                        <h3 className="text-xl font-bold text-slate-900">{procLabel(selected.process)} {t('dashboard.processView.process')}</h3>
+                        <Badge className={`border-0 ${selected.frontend > 0 ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>{selected.frontend > 0 ? t('common.feProcess') : t('common.beProcess')}</Badge>
                       </div>
-                      <p className="text-sm text-slate-500">총 원가 {selected.frontend + selected.backend}억원</p>
+                      <p className="text-sm text-slate-500">{t('dashboard.processView.totalCost', { amount: selected.frontend + selected.backend })}</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className={`text-3xl font-extrabold ${selected.variance > 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                      {selected.variance > 0 ? '+' : ''}{selected.variance}억
-                    </div>
-                    <div className="text-xs text-slate-500">전월 대비 차이</div>
+                    <div className={`text-3xl font-extrabold ${selected.variance > 0 ? 'text-red-600' : 'text-blue-600'}`}>{selected.variance > 0 ? '+' : ''}{selected.variance}{b}</div>
+                    <div className="text-xs text-slate-500">{t('dashboard.processView.vsPrevDiff')}</div>
                   </div>
                 </div>
 
-                {/* 비용 계정 카드 그리드 */}
                 <div className="grid grid-cols-4 gap-4">
-                  {[...selected.costElements]
-                    .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
-                    .map((element, elIdx) => {
-                      const total = selected.costElements.reduce((s, e) => s + Math.abs(e.variance), 0)
-                      const pct = total > 0 ? (Math.abs(element.variance) / total * 100) : 0
-                      const elementColor =
-                        element.element === '재료비' ? { icon: <Package className="w-5 h-5" />, bg: 'bg-purple-500', light: 'bg-purple-50', text: 'text-purple-700', bar: 'bg-purple-400' } :
-                        element.element === '감가상각비' ? { icon: <Factory className="w-5 h-5" />, bg: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-700', bar: 'bg-blue-400' } :
-                        element.element === '인건비' ? { icon: <Activity className="w-5 h-5" />, bg: 'bg-emerald-500', light: 'bg-emerald-50', text: 'text-emerald-700', bar: 'bg-emerald-400' } :
-                        { icon: <Zap className="w-5 h-5" />, bg: 'bg-orange-500', light: 'bg-orange-50', text: 'text-orange-700', bar: 'bg-orange-400' }
+                  {[...selected.costElements].sort((a, bb) => Math.abs(bb.variance) - Math.abs(a.variance)).map((element, elIdx) => {
+                    const total = selected.costElements.reduce((s, e) => s + Math.abs(e.variance), 0)
+                    const pct = total > 0 ? (Math.abs(element.variance) / total * 100) : 0
+                    const elementColor =
+                      element.element === '재료비' ? { icon: <Package className="w-5 h-5" />, bg: 'bg-purple-500', light: 'bg-purple-50', text: 'text-purple-700', bar: 'bg-purple-400' } :
+                      element.element === '감가상각비' ? { icon: <Factory className="w-5 h-5" />, bg: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-700', bar: 'bg-blue-400' } :
+                      element.element === '인건비' ? { icon: <Activity className="w-5 h-5" />, bg: 'bg-emerald-500', light: 'bg-emerald-50', text: 'text-emerald-700', bar: 'bg-emerald-400' } :
+                      { icon: <Zap className="w-5 h-5" />, bg: 'bg-orange-500', light: 'bg-orange-50', text: 'text-orange-700', bar: 'bg-orange-400' }
 
-                      return (
-                        <motion.div
-                          key={element.element}
-                          initial={{ opacity: 0, y: 16 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: elIdx * 0.08 }}
-                          className={`rounded-xl border border-slate-200 overflow-hidden hover:shadow-md transition-shadow`}
-                        >
-                          {/* 컬러 헤더 */}
-                          <div className={`${elementColor.bg} px-4 py-3 text-white flex items-center justify-between`}>
-                            <div className="flex items-center gap-2">
-                              {elementColor.icon}
-                              <span className="font-bold text-sm">{element.element}</span>
-                            </div>
-                            <span className="text-lg font-extrabold">
-                              {element.variance > 0 ? '+' : ''}{element.variance}억
-                            </span>
+                    return (
+                      <motion.div key={element.element} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: elIdx * 0.08 }} className="rounded-xl border border-slate-200 overflow-hidden hover:shadow-md transition-shadow">
+                        <div className={`${elementColor.bg} px-4 py-3 text-white flex items-center justify-between`}>
+                          <div className="flex items-center gap-2">{elementColor.icon}<span className="font-bold text-sm">{ceLabel(element.element)}</span></div>
+                          <span className="text-lg font-extrabold">{element.variance > 0 ? '+' : ''}{element.variance}{b}</span>
+                        </div>
+                        <div className="p-4 bg-white">
+                          <div className="flex justify-between text-xs text-slate-500 mb-2">
+                            <span>{t('dashboard.processView.prevMonth')} <strong className="text-slate-700">{element.previous}{b}</strong></span>
+                            <span>{t('dashboard.processView.currMonth')} <strong className="text-slate-700">{element.current}{b}</strong></span>
                           </div>
-                          {/* 바디 */}
-                          <div className="p-4 bg-white">
-                            <div className="flex justify-between text-xs text-slate-500 mb-2">
-                              <span>전월 <strong className="text-slate-700">{element.previous}억</strong></span>
-                              <span>당월 <strong className="text-slate-700">{element.current}억</strong></span>
-                            </div>
-                            {/* 비중 바 */}
-                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden mb-3">
-                              <motion.div
-                                initial={{ width: 0 }}
-                                animate={{ width: `${pct}%` }}
-                                transition={{ duration: 0.8, ease: 'easeOut' }}
-                                className={`h-full rounded-full ${elementColor.bar}`}
-                              />
-                            </div>
-                            {/* 세부내역 */}
-                            {element.details.length > 0 && (
-                              <div className="space-y-1">
-                                {element.details.map((detail, i) => (
-                                  <div key={i} className="text-xs text-slate-600 flex items-start gap-1.5">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${elementColor.bar} mt-1 flex-shrink-0`} />
-                                    {detail}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                          <div className="h-2 bg-slate-100 rounded-full overflow-hidden mb-3">
+                            <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.8, ease: 'easeOut' }} className={`h-full rounded-full ${elementColor.bar}`} />
                           </div>
-                        </motion.div>
-                      )
-                    })}
+                          {element.details.length > 0 && (
+                            <div className="space-y-1">
+                              {element.details.map((detail, i) => (<div key={i} className="text-xs text-slate-600 flex items-start gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${elementColor.bar} mt-1 flex-shrink-0`} />{detail}</div>))}
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    )
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -1469,14 +1119,11 @@ function ProcessView({ data }: { data: ProcessDataItem[] }) {
         )}
       </AnimatePresence>
 
-      {/* 미선택 시 안내 */}
       {!selected && (
         <Card className="border-dashed border-2 border-slate-300 bg-slate-50/50">
           <CardContent className="p-12 text-center">
-            <div className="text-slate-400 mb-2">
-              <Layers className="w-12 h-12 mx-auto mb-3 opacity-50" />
-            </div>
-            <p className="text-slate-500 font-medium">위 공정 노드를 클릭하면 비용 계정 상세가 표시됩니다</p>
+            <div className="text-slate-400 mb-2"><Layers className="w-12 h-12 mx-auto mb-3 opacity-50" /></div>
+            <p className="text-slate-500 font-medium">{t('dashboard.processView.emptyGuide')}</p>
           </CardContent>
         </Card>
       )}
@@ -1486,59 +1133,39 @@ function ProcessView({ data }: { data: ProcessDataItem[] }) {
 
 /* ═══════════ Product View ═══════════ */
 function ProductView({ data }: { data: ProductImpactItem[] }) {
+  const { t } = useTranslation()
+  const b = t('common.billion')
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      className="space-y-6"
-    >
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">제품별 원가 영향 분석</h2>
-        <p className="text-slate-500">제품군별 원가 증감 및 성장률 분석</p>
+        <h2 className="text-2xl font-bold text-slate-900">{t('dashboard.productView.title')}</h2>
+        <p className="text-slate-500">{t('dashboard.productView.subtitle')}</p>
       </div>
 
       <div className="grid grid-cols-4 gap-4">
         {data.map((product, idx) => (
-          <motion.div
-            key={product.product}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: idx * 0.05 }}
-            whileHover={{ y: -4 }}
-          >
+          <motion.div key={product.product} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: idx * 0.05 }} whileHover={{ y: -4 }}>
             <Card className="shadow-lg border-slate-200 overflow-hidden">
               <div className="h-2" style={{ backgroundColor: product.color }} />
               <CardContent className="p-5">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <div className="text-sm text-slate-500 mb-1">제품군</div>
+                    <div className="text-sm text-slate-500 mb-1">{t('dashboard.productView.productGroup')}</div>
                     <div className="text-xl font-bold text-slate-900">{product.product}</div>
                   </div>
-                  {Math.abs(product.value) > 20 && (
-                    <div className="p-2 bg-red-100 rounded-lg">
-                      <AlertCircle className="w-4 h-4 text-red-600" />
-                    </div>
-                  )}
+                  {Math.abs(product.value) > 20 && (<div className="p-2 bg-red-100 rounded-lg"><AlertCircle className="w-4 h-4 text-red-600" /></div>)}
                 </div>
                 <div className="space-y-3">
                   <div>
-                    <div className="text-xs text-slate-500 mb-1">원가 변동</div>
-                    <div className={`text-2xl font-bold ${product.value > 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                      {product.value > 0 ? '+' : ''}{product.value}억
-                    </div>
+                    <div className="text-xs text-slate-500 mb-1">{t('dashboard.productView.costChange')}</div>
+                    <div className={`text-2xl font-bold ${product.value > 0 ? 'text-red-600' : 'text-blue-600'}`}>{product.value > 0 ? '+' : ''}{product.value}{b}</div>
                   </div>
                   <div>
-                    <div className="text-xs text-slate-500 mb-1">증감률</div>
+                    <div className="text-xs text-slate-500 mb-1">{t('dashboard.productView.growthRate')}</div>
                     <div className="flex items-center gap-2">
-                      {product.growth > 0 ? (
-                        <TrendingUp className="w-4 h-4 text-red-500" />
-                      ) : (
-                        <TrendingDown className="w-4 h-4 text-blue-500" />
-                      )}
-                      <span className={`font-bold ${product.growth > 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                        {product.growth > 0 ? '+' : ''}{product.growth}%
-                      </span>
+                      {product.growth > 0 ? <TrendingUp className="w-4 h-4 text-red-500" /> : <TrendingDown className="w-4 h-4 text-blue-500" />}
+                      <span className={`font-bold ${product.growth > 0 ? 'text-red-600' : 'text-blue-600'}`}>{product.growth > 0 ? '+' : ''}{product.growth}%</span>
                     </div>
                   </div>
                 </div>
@@ -1548,72 +1175,57 @@ function ProductView({ data }: { data: ProductImpactItem[] }) {
         ))}
       </div>
 
-      {/* Product Comparison Chart */}
       <Card className="shadow-lg border-slate-200">
         <CardContent className="p-6">
           <div className="mb-6">
-            <h3 className="text-lg font-bold text-slate-900">제품별 원가 증감 비교</h3>
-            <p className="text-sm text-slate-500">각 제품의 원가 변동 폭</p>
+            <h3 className="text-lg font-bold text-slate-900">{t('dashboard.productView.comparisonChart')}</h3>
+            <p className="text-sm text-slate-500">{t('dashboard.productView.comparisonChartDesc')}</p>
           </div>
           <ResponsiveContainer width="100%" height={400}>
             <BarChart data={data} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
               <XAxis type="number" stroke="#64748b" />
               <YAxis dataKey="product" type="category" stroke="#64748b" width={80} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: 'white',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                }}
-              />
+              <Tooltip contentStyle={{ backgroundColor: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
               <Bar dataKey="value" radius={[0, 8, 8, 0]}>
-                {data.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.value > 0 ? '#ef4444' : '#3b82f6'} />
-                ))}
+                {data.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.value > 0 ? '#ef4444' : '#3b82f6'} />))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
 
-      {/* Product Growth Matrix */}
       <Card className="shadow-lg border-slate-200">
         <CardContent className="p-6">
           <div className="mb-6">
-            <h3 className="text-lg font-bold text-slate-900">제품 포트폴리오 매트릭스</h3>
-            <p className="text-sm text-slate-500">원가 변동 vs 성장률</p>
+            <h3 className="text-lg font-bold text-slate-900">{t('dashboard.productView.portfolioMatrix')}</h3>
+            <p className="text-sm text-slate-500">{t('dashboard.productView.portfolioMatrixDesc')}</p>
           </div>
           <div className="grid grid-cols-2 gap-6">
             <div className="p-6 bg-red-50 rounded-xl border-2 border-red-200">
               <div className="flex items-center gap-2 mb-4">
-                <div className="p-2 bg-red-200 rounded-lg">
-                  <TrendingUp className="w-5 h-5 text-red-700" />
-                </div>
-                <span className="font-bold text-red-900">고성장 / 원가증가</span>
+                <div className="p-2 bg-red-200 rounded-lg"><TrendingUp className="w-5 h-5 text-red-700" /></div>
+                <span className="font-bold text-red-900">{t('dashboard.productView.highGrowthIncrease')}</span>
               </div>
               <div className="space-y-2">
                 {data.filter(p => p.growth > 5 && p.value > 10).map(p => (
                   <div key={p.product} className="flex items-center justify-between p-3 bg-white rounded-lg">
                     <span className="font-medium text-slate-900">{p.product}</span>
-                    <span className="text-red-600 font-bold">+{p.value}억</span>
+                    <span className="text-red-600 font-bold">+{p.value}{b}</span>
                   </div>
                 ))}
               </div>
             </div>
             <div className="p-6 bg-blue-50 rounded-xl border-2 border-blue-200">
               <div className="flex items-center gap-2 mb-4">
-                <div className="p-2 bg-blue-200 rounded-lg">
-                  <TrendingDown className="w-5 h-5 text-blue-700" />
-                </div>
-                <span className="font-bold text-blue-900">저성장 / 원가감소</span>
+                <div className="p-2 bg-blue-200 rounded-lg"><TrendingDown className="w-5 h-5 text-blue-700" /></div>
+                <span className="font-bold text-blue-900">{t('dashboard.productView.lowGrowthDecrease')}</span>
               </div>
               <div className="space-y-2">
                 {data.filter(p => p.growth < 0 || p.value < 0).map(p => (
                   <div key={p.product} className="flex items-center justify-between p-3 bg-white rounded-lg">
                     <span className="font-medium text-slate-900">{p.product}</span>
-                    <span className="text-blue-600 font-bold">{p.value}억</span>
+                    <span className="text-blue-600 font-bold">{p.value}{b}</span>
                   </div>
                 ))}
               </div>
@@ -1627,16 +1239,13 @@ function ProductView({ data }: { data: ProductImpactItem[] }) {
 
 /* ═══════════ Drivers View ═══════════ */
 function DriversView({ data }: { data: AllocationDriverItem[] }) {
+  const { t } = useTranslation()
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      className="space-y-6"
-    >
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900">배부기준 변동 분석</h2>
-        <p className="text-slate-500">주요 배부 드라이버별 변동 현황 및 MES/PLM 연계</p>
+        <h2 className="text-2xl font-bold text-slate-900">{t('dashboard.driversView.title')}</h2>
+        <p className="text-slate-500">{t('dashboard.driversView.subtitle')}</p>
       </div>
 
       {data.map((driver, idx) => {
@@ -1644,79 +1253,54 @@ function DriversView({ data }: { data: AllocationDriverItem[] }) {
         const changePercent = driver.previous !== 0 ? ((change / driver.previous) * 100).toFixed(1) : '0.0'
 
         return (
-          <motion.div
-            key={driver.driver}
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: idx * 0.1 }}
-          >
+          <motion.div key={driver.driver} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.1 }}>
             <Card className="shadow-lg border-slate-200 hover:shadow-xl transition-shadow">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-4">
-                    <div className="p-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl">
-                      <Zap className="w-8 h-8 text-white" />
-                    </div>
+                    <div className="p-4 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl"><Zap className="w-8 h-8 text-white" /></div>
                     <div>
                       <h3 className="text-xl font-bold text-slate-900">{driver.driver}</h3>
-                      <p className="text-sm text-slate-500">배부 기준 드라이버</p>
+                      <p className="text-sm text-slate-500">{t('dashboard.driversView.driverLabel')}</p>
                     </div>
                   </div>
-                  <Badge className="px-4 py-2 text-sm bg-blue-100 text-blue-700 border-0">MES 연동</Badge>
+                  <Badge className="px-4 py-2 text-sm bg-blue-100 text-blue-700 border-0">{t('dashboard.driversView.mesLinked')}</Badge>
                 </div>
 
                 <div className="grid grid-cols-4 gap-4">
                   <div className="p-4 bg-slate-50 rounded-lg">
-                    <div className="text-xs text-slate-500 mb-1">전월 배부기준</div>
+                    <div className="text-xs text-slate-500 mb-1">{t('dashboard.driversView.prevBase')}</div>
                     <div className="text-2xl font-bold text-slate-700">{driver.previous.toLocaleString()}</div>
                     <div className="text-xs text-slate-500 mt-1">{driver.unit}</div>
                   </div>
                   <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
-                    <div className="text-xs text-blue-600 mb-1">당월 배부기준</div>
+                    <div className="text-xs text-blue-600 mb-1">{t('dashboard.driversView.currBase')}</div>
                     <div className="text-2xl font-bold text-blue-700">{driver.current.toLocaleString()}</div>
                     <div className="text-xs text-blue-600 mt-1">{driver.unit}</div>
                   </div>
                   <div className={`p-4 rounded-lg ${change > 0 ? 'bg-red-50 border-2 border-red-200' : 'bg-green-50 border-2 border-green-200'}`}>
-                    <div className={`text-xs mb-1 ${change > 0 ? 'text-red-600' : 'text-green-600'}`}>기준 변동</div>
+                    <div className={`text-xs mb-1 ${change > 0 ? 'text-red-600' : 'text-green-600'}`}>{t('dashboard.driversView.baseChange')}</div>
                     <div className="flex items-center gap-2">
-                      {change > 0 ? (
-                        <TrendingUp className="w-5 h-5 text-red-600" />
-                      ) : change < 0 ? (
-                        <TrendingDown className="w-5 h-5 text-green-600" />
-                      ) : null}
-                      <div className={`text-2xl font-bold ${change > 0 ? 'text-red-700' : change < 0 ? 'text-green-700' : 'text-slate-700'}`}>
-                        {change > 0 ? '+' : ''}{changePercent}%
-                      </div>
+                      {change > 0 ? <TrendingUp className="w-5 h-5 text-red-600" /> : change < 0 ? <TrendingDown className="w-5 h-5 text-green-600" /> : null}
+                      <div className={`text-2xl font-bold ${change > 0 ? 'text-red-700' : change < 0 ? 'text-green-700' : 'text-slate-700'}`}>{change > 0 ? '+' : ''}{changePercent}%</div>
                     </div>
                   </div>
                   {driver.curr_rate != null && driver.prev_rate != null && (
                     <div className="p-4 bg-purple-50 rounded-lg border-2 border-purple-200">
-                      <div className="text-xs text-purple-600 mb-1">배부율 변동</div>
-                      <div className="text-lg font-bold text-purple-700">
-                        {driver.prev_rate.toLocaleString()} → {driver.curr_rate.toLocaleString()}
-                      </div>
-                      <div className={`text-xs font-semibold mt-1 ${driver.curr_rate > driver.prev_rate ? 'text-red-600' : 'text-green-600'}`}>
-                        {driver.curr_rate > driver.prev_rate ? '+' : ''}{(driver.curr_rate - driver.prev_rate).toFixed(2)}
-                      </div>
+                      <div className="text-xs text-purple-600 mb-1">{t('dashboard.driversView.rateChange')}</div>
+                      <div className="text-lg font-bold text-purple-700">{driver.prev_rate.toLocaleString()} → {driver.curr_rate.toLocaleString()}</div>
+                      <div className={`text-xs font-semibold mt-1 ${driver.curr_rate > driver.prev_rate ? 'text-red-600' : 'text-green-600'}`}>{driver.curr_rate > driver.prev_rate ? '+' : ''}{(driver.curr_rate - driver.prev_rate).toFixed(2)}</div>
                     </div>
                   )}
                 </div>
 
-                {/* Progress bar */}
                 <div className="mt-4">
                   <div className="flex items-center justify-between text-xs text-slate-500 mb-2">
-                    <span>변동 추이</span>
+                    <span>{t('dashboard.driversView.changeTrend')}</span>
                     <span>{change > 0 ? '+' : ''}{change.toLocaleString()} {driver.unit}</span>
                   </div>
                   <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(Math.abs(parseFloat(changePercent)), 100)}%` }}
-                      transition={{ duration: 1, ease: 'easeOut' }}
-                      className={`h-full rounded-full ${
-                        change > 0 ? 'bg-gradient-to-r from-red-400 to-red-600' : 'bg-gradient-to-r from-green-400 to-green-600'
-                      }`}
-                    />
+                    <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(Math.abs(parseFloat(changePercent)), 100)}%` }} transition={{ duration: 1, ease: 'easeOut' }} className={`h-full rounded-full ${change > 0 ? 'bg-gradient-to-r from-red-400 to-red-600' : 'bg-gradient-to-r from-green-400 to-green-600'}`} />
                   </div>
                 </div>
               </CardContent>
@@ -1725,36 +1309,29 @@ function DriversView({ data }: { data: AllocationDriverItem[] }) {
         )
       })}
 
-      {/* System Integration */}
       <Card className="shadow-lg border-slate-200 bg-gradient-to-br from-slate-50 to-white">
         <CardContent className="p-6">
           <div className="mb-6">
-            <h3 className="text-lg font-bold text-slate-900">시스템 연계 현황</h3>
-            <p className="text-sm text-slate-500">MES, PLM, ERP 실시간 데이터 통합</p>
+            <h3 className="text-lg font-bold text-slate-900">{t('dashboard.driversView.systemStatus')}</h3>
+            <p className="text-sm text-slate-500">{t('dashboard.driversView.systemStatusDesc')}</p>
           </div>
           <div className="grid grid-cols-3 gap-4">
             {[
-              { system: 'MES', lastSync: '2분 전', records: '1,245건' },
-              { system: 'PLM', lastSync: '5분 전', records: '834건' },
-              { system: 'SAP ERP', lastSync: '1분 전', records: '2,891건' },
+              { system: 'MES', lastSync: t('dashboard.driversView.mesLastSync'), records: t('dashboard.driversView.mesRecords') },
+              { system: 'PLM', lastSync: t('dashboard.driversView.plmLastSync'), records: t('dashboard.driversView.plmRecords') },
+              { system: 'SAP ERP', lastSync: t('dashboard.driversView.sapLastSync'), records: t('dashboard.driversView.sapRecords') },
             ].map((sys, idx) => (
-              <motion.div
-                key={sys.system}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.1 }}
-                className="p-5 bg-white rounded-xl border-2 border-slate-200"
-              >
+              <motion.div key={sys.system} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }} className="p-5 bg-white rounded-xl border-2 border-slate-200">
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-bold text-slate-900">{sys.system}</span>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                    <span className="text-xs text-green-600">연결됨</span>
+                    <span className="text-xs text-green-600">{t('dashboard.driversView.connected')}</span>
                   </div>
                 </div>
                 <div className="text-xs text-slate-500 space-y-1">
-                  <div>마지막 동기화: {sys.lastSync}</div>
-                  <div>처리 레코드: {sys.records}</div>
+                  <div>{t('dashboard.driversView.lastSync')} {sys.lastSync}</div>
+                  <div>{t('dashboard.driversView.processedRecords')} {sys.records}</div>
                 </div>
               </motion.div>
             ))}
@@ -1768,11 +1345,7 @@ function DriversView({ data }: { data: AllocationDriverItem[] }) {
 /* ═══════════ Network View ═══════════ */
 function NetworkView() {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-    >
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
       <CostNetworkGraph />
     </motion.div>
   )
