@@ -1,13 +1,30 @@
 /**
- * API 서비스 - 백엔드 통신 모듈
+ * API 서비스 — 프론트엔드 데모용
+ * 백엔드가 없으면 Mock 데이터로 자동 폴백
  */
 
 import axios from 'axios'
+import { getMockResponse } from './mockData'
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: 5000,
 })
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const url = error.config?.url || ''
+    const params = { ...error.config?.params }
+
+    if (error.config?.data) {
+      try { Object.assign(params, JSON.parse(error.config.data)) } catch { /* ignore */ }
+    }
+
+    const mockData = getMockResponse(url, params)
+    return Promise.resolve({ data: mockData, status: 200, statusText: 'OK (mock)', headers: {}, config: error.config })
+  },
+)
 
 // ── 대시보드 API ──
 
@@ -43,8 +60,6 @@ export const dashboardApi = {
 
   getGraphData: (yyyymm: string, productCd: string) =>
     api.get('/dashboard/graph-data', { params: { yyyymm, product_cd: productCd } }),
-
-  // ── 대시보드 뷰 전용 API ──
 
   getTrendByProductGroup: (yyyymm: string, months = 6) =>
     api.get('/dashboard/trend-by-product-group', { params: { yyyymm, months } }),

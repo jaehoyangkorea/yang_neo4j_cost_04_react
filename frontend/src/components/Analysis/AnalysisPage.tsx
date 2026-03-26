@@ -16,28 +16,30 @@ export default function AnalysisPage() {
   const addStatus = (msg: string, type: StatusEntry['type'] = 'running') =>
     setStatus(prev => [...prev, { msg, type }])
 
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
   const runFullProcess = async () => {
     setLoading(true)
     setStatus([])
 
     try {
-      // Step 3: 차이 계산
       addStatus(t('analysis.step3Running'), 'running')
+      await delay(800)
       const calcResult = await analysisApi.calculateVariance(yyyymm)
       addStatus(t('analysis.step3Done', { count: calcResult.data.count }), 'done')
 
-      // Step 4: 그래프 구축
       addStatus(t('analysis.step4Running'), 'running')
+      await delay(1200)
       await analysisApi.buildGraph(yyyymm)
       addStatus(t('analysis.step4Done'), 'done')
 
-      // Step 4d: 인과관계
       addStatus(t('analysis.step4dRunning'), 'running')
+      await delay(600)
       await analysisApi.runRules(yyyymm)
       addStatus(t('analysis.step4dDone'), 'done')
 
-      // Step 5: LLM 해석
       addStatus(t('analysis.step5Running'), 'running')
+      await delay(1500)
       const interpretResult = await analysisApi.interpret(yyyymm)
       addStatus(t('analysis.step5Done', { count: interpretResult.data.count }), 'done')
 

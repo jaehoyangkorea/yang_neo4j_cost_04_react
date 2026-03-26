@@ -1,0 +1,16 @@
+{
+  "name": "semicon-cost-analysis-demo",
+  "version": "1.0.0",
+  "description": "반도체 원가 증감 차이분석 시스템 - 프론트엔드 데모",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "install:frontend": "cd frontend && npm install",
+    "build": "cd frontend && npm run build",
+    "start": "node server.js",
+    "dev": "cd frontend && npm run dev",
+    "postinstall": "npm run install:frontend && npm run build"
+  }
+}
