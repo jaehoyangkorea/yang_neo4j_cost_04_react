@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  id-token: write
   contents: read
 
 jobs:
@@ -19,27 +20,33 @@ jobs:
       - name: Node.js 설정
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          node-version: '22'
 
       - name: 프론트엔드 의존성 설치
-        run: cd frontend && npm ci
+        working-directory: frontend
+        run: npm ci
 
       - name: 프론트엔드 빌드
-        run: cd frontend && npm run build
+        working-directory: frontend
+        run: npm run build
 
       - name: 배포 패키지 준비
         run: |
-          mkdir -p deploy
+          mkdir -p deploy/frontend/dist
           cp server.js deploy/
           cp package.json deploy/
-          cp -r frontend/dist deploy/frontend/dist
+          cp -r frontend/dist/* deploy/frontend/dist/
+
+      - name: Azure 로그인
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_C7359E61CF834BE3B8F025CC8C59BF99 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_FB9781A40BA944389C6E168D79F99E8D }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_4E8BAED299484F2F89FBA28E3045A3DC }}
 
       - name: Azure Web App 배포
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          app-name: 'yang-neo4j-cost'
+          slot-name: 'Production'
           package: deploy
-          startup-command: 'node server.js'
