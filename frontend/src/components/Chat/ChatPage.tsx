@@ -442,7 +442,12 @@ export default function ChatPage() {
 
     try {
       const res = await chatApi.ask(question, yyyymm)
-      setMessages(prev => [...prev, { role: 'assistant', content: res.data.answer }])
+      const serverAnswer = res.data?.answer
+      if (serverAnswer && serverAnswer.trim().length > 0) {
+        setMessages(prev => [...prev, { role: 'assistant', content: serverAnswer }])
+      } else {
+        throw new Error('empty')
+      }
     } catch {
       await new Promise(resolve => setTimeout(resolve, 600))
 

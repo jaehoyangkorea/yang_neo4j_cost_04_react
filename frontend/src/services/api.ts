@@ -11,18 +11,29 @@ const api = axios.create({
   timeout: 5000,
 })
 
+function buildMockResponse(config: any) {
+  const url = config?.url || ''
+  const params = { ...config?.params }
+  if (config?.data) {
+    try { Object.assign(params, JSON.parse(config.data)) } catch { /* ignore */ }
+  }
+  const mockData = getMockResponse(url, params)
+  return { data: mockData, status: 200, statusText: 'OK (mock)', headers: {}, config }
+}
+
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    const url = error.config?.url || ''
-    const params = { ...error.config?.params }
-
-    if (error.config?.data) {
-      try { Object.assign(params, JSON.parse(error.config.data)) } catch { /* ignore */ }
+  (response) => {
+    const ct = response.headers?.['content-type'] || ''
+    if (typeof response.data === 'string' && (response.data.includes('<!DOCTYPE') || response.data.includes('<html'))) {
+      return buildMockResponse(response.config)
     }
-
-    const mockData = getMockResponse(url, params)
-    return Promise.resolve({ data: mockData, status: 200, statusText: 'OK (mock)', headers: {}, config: error.config })
+    if (ct.includes('text/html')) {
+      return buildMockResponse(response.config)
+    }
+    return response
+  },
+  (error) => {
+    return Promise.resolve(buildMockResponse(error.config))
   },
 )
 
