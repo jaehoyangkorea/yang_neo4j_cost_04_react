@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import DashboardPage from './components/Dashboard/DashboardPage'
@@ -6,7 +6,7 @@ import GraphExplorer from './components/Graph/GraphExplorer'
 import AnalysisPage from './components/Analysis/AnalysisPage'
 import ChatPage from './components/Chat/ChatPage'
 import ReportPage from './components/Report/ReportPage'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import {
   Activity,
   Layers,
@@ -29,6 +29,8 @@ import {
   Factory,
   ShoppingCart,
   Globe,
+  Menu,
+  X,
 } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { Input } from './components/ui/input'
@@ -39,8 +41,14 @@ function App() {
   const { t, i18n } = useTranslation()
   const [dashboardView, setDashboardView] = useState<DashboardView>('overview')
   const [timeRange, setTimeRange] = useState('month')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
   const isDashboard = location.pathname === '/'
+
+  // 라우트가 변경되면 모바일에서 사이드바 자동 닫기
+  useEffect(() => {
+    setSidebarOpen(false)
+  }, [location.pathname])
 
   const toggleLanguage = () => {
     i18n.changeLanguage(i18n.language === 'ko' ? 'en' : 'ko')
@@ -54,13 +62,37 @@ function App() {
 
   return (
     <div className="flex h-screen bg-slate-50">
+      {/* Mobile Overlay */}
+      <AnimatePresence>
+        {sidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => setSidebarOpen(false)}
+            className="md:hidden fixed inset-0 bg-black/50 z-30"
+          />
+        )}
+      </AnimatePresence>
+
       {/* Sidebar Navigation */}
-      <motion.div
-        initial={{ x: -300 }}
-        animate={{ x: 0 }}
-        className="w-72 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6 shadow-2xl overflow-y-auto flex-shrink-0"
+      <aside
+        className={`fixed md:static inset-y-0 left-0 z-40 w-72 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white p-6 shadow-2xl overflow-y-auto flex-shrink-0 transform transition-transform duration-300 ease-in-out ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        }`}
       >
-        <div className="mb-8">
+        {/* Close button (mobile only) */}
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(false)}
+          className="md:hidden absolute top-4 right-4 p-2 rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
+          aria-label="Close menu"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="mb-8 pr-10 md:pr-0">
           <h1 className="text-2xl font-bold mb-2">{t('sidebar.title')}</h1>
           <p className="text-slate-400 text-sm">{t('sidebar.subtitle')}</p>
         </div>
@@ -213,33 +245,43 @@ function App() {
             <div className="text-sm font-semibold text-blue-300">{t('sidebar.mainCauseValue')}</div>
           </div>
         </div>
-      </motion.div>
+      </aside>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto w-full">
         {/* Header Bar */}
-        <div className="bg-white border-b border-slate-200 px-8 py-4 sticky top-0 z-10 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="relative">
+        <div className="bg-white border-b border-slate-200 px-4 md:px-8 py-4 sticky top-0 z-10 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 md:gap-4 min-w-0 flex-1">
+              {/* Hamburger (mobile only) */}
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                className="md:hidden p-2 -ml-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors flex-shrink-0"
+                aria-label="Open menu"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+
+              <div className="relative hidden sm:block">
                 <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
                 <Input
                   placeholder={t('header.searchPlaceholder')}
-                  className="pl-10 w-80 bg-slate-50 border-slate-200"
+                  className="pl-10 w-48 md:w-80 bg-slate-50 border-slate-200"
                 />
               </div>
-              <Button variant="outline" size="sm" className="gap-2">
+              <Button variant="outline" size="sm" className="gap-2 hidden sm:inline-flex">
                 <Filter className="w-4 h-4" />
                 {t('header.filter')}
               </Button>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 md:gap-3 flex-shrink-0">
               {/* Language Toggle */}
               <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden">
                 <button
                   onClick={() => i18n.changeLanguage('ko')}
-                  className={`px-3 py-1.5 text-xs font-semibold transition-all ${
+                  className={`px-2 md:px-3 py-1.5 text-xs font-semibold transition-all ${
                     i18n.language === 'ko'
                       ? 'bg-blue-600 text-white'
                       : 'bg-white text-slate-500 hover:bg-slate-50'
@@ -249,7 +291,7 @@ function App() {
                 </button>
                 <button
                   onClick={() => i18n.changeLanguage('en')}
-                  className={`px-3 py-1.5 text-xs font-semibold transition-all ${
+                  className={`px-2 md:px-3 py-1.5 text-xs font-semibold transition-all ${
                     i18n.language === 'en'
                       ? 'bg-blue-600 text-white'
                       : 'bg-white text-slate-500 hover:bg-slate-50'
@@ -258,11 +300,11 @@ function App() {
                   {t('header.langEn')}
                 </button>
               </div>
-              <Button variant="outline" size="sm" className="gap-2">
+              <Button variant="outline" size="sm" className="gap-2 hidden md:inline-flex">
                 <RefreshCw className="w-4 h-4" />
                 {t('header.refresh')}
               </Button>
-              <Button variant="outline" size="sm" className="gap-2">
+              <Button variant="outline" size="sm" className="gap-2 hidden lg:inline-flex">
                 <Download className="w-4 h-4" />
                 {t('header.exportReport')}
               </Button>
@@ -271,7 +313,7 @@ function App() {
         </div>
 
         {/* Content Area */}
-        <div className="p-8">
+        <div className="p-4 md:p-8">
           <Routes>
             <Route path="/" element={<DashboardPage selectedView={dashboardView} />} />
             <Route path="/graph" element={<GraphExplorer />} />
